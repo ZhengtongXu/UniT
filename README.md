@@ -1,7 +1,5 @@
 # UniT: Unified Tactile Representation for Robot Learning 
-### Zhengtong Xu, Raghava Uppuluri, Xinwei Zhang, Cael Fitch, Philip Glen Crandall, Wan Shou, Dongyi Wang, [Yu She](https://www.purduemars.com/home)
 
-_Purdue University_ and _University of Arkansas_
 
 [Project](https://zhengtongxu.github.io/unifiedtactile.github.io/) | [arXiv]() | [Summary Video]()
 
