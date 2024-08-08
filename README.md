@@ -5,9 +5,9 @@ _Purdue University_ and _University of Arkansas_
 
 [Project](https://zhengtongxu.github.io/unifiedtactile.github.io/) | [arXiv]() | [Summary Video]()
 
----
+
 UniT is a novel approach to tactile representation learning, using VQVAE to learn a compact latent space and serve as the tactile representation. It uses tactile images obtained from a single simple object to train the representation with transferability and generalizability. This tactile representation can be zero-shot transferred to various downstream tasks, including perception tasks and manipulation policy learning. Our benchmarking on an in-hand 3D pose estimation task shows that UniT outperforms existing visual and tactile representation learning methods. Additionally, UniT's effectiveness in policy learning is demonstrated across three real-world tasks involving diverse manipulated objects and complex robot-object-environment interactions. Through extensive experimentation, UniT is shown to be a simple-to-train, plug-and-play, yet widely effective method for tactile representation learning.
----
+
 
 ## Dataset
 
