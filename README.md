@@ -13,6 +13,8 @@ UniT is a novel approach to tactile representation learning, using VQVAE to lear
 
 We have released the dataset for representation learning, in-hand 3D pose estimation, and manipulation policy learning at this [link](https://drive.google.com/drive/folders/1CkPqgNFCE6B1mr2pxYdNdSR-xAkSnxQc?usp=sharing).
 
+The "Chicken Legs Hanging," "Chips Grasping," and "Allen Key Insertion" datasets contain 200, 180, and 170 demonstrations, respectively. Specifically, the "Allen Key Insertion" dataset includes 100 demonstrations collected with one type of rack and 70 with another type.
+
 ## Installation
 
 For installation, please run
