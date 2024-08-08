@@ -24,10 +24,9 @@ $ mamba env create -f conda_environment.yaml && bash install_custom_packages.sh
 
 ## Representation Training
 
-Activate conda environment and login to [wandb](https://wandb.ai) (if you haven't already).
+Activate conda environment
 ```console
 $ conda activate unitenv
-$ wandb login
 ```
 
 For example, launch representation training with UniT and Allen key dataset
@@ -45,8 +44,10 @@ We provide multiple YAML files as examples for representation learning, covering
 
 
 ## Tactile Perception Training
-All logs from tactile perception training will be uploaded to wandb.
-
+All logs from tactile perception training will be uploaded to wandb. Login to [wandb](https://wandb.ai) (if you haven't already)
+```console
+$ wandb login
+```
 For example, deploy the trained UniT representation to the in-hand 3D pose estimation task, just run
 ```console
 $ python train.py --config-dir=./UniT/config --config-name=key_vqvae_perception.yaml hydra.run.dir=data/outputs/your_folder_name
