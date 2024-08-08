@@ -13,6 +13,12 @@ We have released the dataset for representation learning, in-hand 3D pose estima
 
 The "Chicken Legs Hanging," "Chips Grasping," and "Allen Key Insertion" datasets contain 200, 180, and 170 demonstrations, respectively. Specifically, the "Allen Key Insertion" dataset includes 100 demonstrations collected with one type of rack and 70 with another type.
 
+To unzip the human demonstration datasets, you can run the following command as an example
+```console
+$ sudo apt-get install p7zip-full
+$ 7z x chips_grasping.zip
+```
+
 ## Installation
 
 For installation, please run
@@ -21,6 +27,13 @@ For installation, please run
 $ cd UniT
 $ mamba env create -f conda_environment.yaml && bash install_custom_packages.sh
 ```
+
+Please note that in the `install_custom_packages.sh` script, the following command is executed
+```console
+$ source ~/miniforge3/etc/profile.d/conda.sh
+```
+
+This command is generally correct. However, if your Conda environments are not located in the `~/miniforge3` directory, please adjust the command to match the path of your environment.
 
 ## Representation Training
 
