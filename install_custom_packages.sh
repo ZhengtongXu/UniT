@@ -5,8 +5,8 @@ set -e
 source ~/miniforge3/etc/profile.d/conda.sh
 conda activate unitenv
 
-mkdir -p ~/third_party
-cd ~/third_party
+mkdir third_party
+cd third_party
 git clone https://github.com/alanzjl/t3
 cd t3
 pip install -e .
