@@ -79,6 +79,10 @@ $ python train.py --config-dir=./UniT/config --config-name=train_legs_unit_polic
 ## Human Demonstration Data Visualization
 We have set up a visualization script using [rerun.io](https://rerun.io/).
 
+You can drag the progress bar to view visual observations, proprioception data, and action data for a single episode or multiple specified episodes within the dataset.
+
+![RerunExample](teasers/rerun_example.gif)
+
 Run the visualization for any episode index in the chicken hanging task
 
 ```console
