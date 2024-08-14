@@ -1,7 +1,7 @@
 # UniT: Unified Tactile Representation for Robot Learning 
 
 
-[Project](https://zhengtongxu.github.io/unifiedtactile.github.io/) | [arXiv]() | [Summary Video](https://drive.google.com/file/d/1RrW7xk7SjMaIHqksxg0vrhm7SPVrPtg8/view?usp=sharing)
+[Project](https://zhengtongxu.github.io/unifiedtactile.github.io/) | [arXiv](https://arxiv.org/abs/2408.06481) | [Summary Video](https://drive.google.com/file/d/1RrW7xk7SjMaIHqksxg0vrhm7SPVrPtg8/view?usp=sharing)
 
 ![ChickenLegsHanging](teasers/teaser_chicken.gif)
 
