@@ -103,6 +103,23 @@ Then
 File > Open RRD file
 ```
 
+##BibTex
+
+If you find this codebase useful, consider citing:
+
+```bibtex
+@misc{xu2024unit,
+      title={{UniT}: Unified Tactile Representation for Robot Learning}, 
+      author={Zhengtong Xu and Raghava Uppuluri and Xinwei Zhang and Cael Fitch and Philip Glen Crandall and Wan Shou and Dongyi Wang and Yu She},
+      year={2024},
+      eprint={2408.06481},
+      archivePrefix={arXiv},
+      primaryClass={cs.RO},
+      url={https://arxiv.org/abs/2408.06481}, 
+}
+```
+
+
 ## Acknowledgement
 
 This repository, during construction, referenced the code structure of [diffusion policy](https://github.com/real-stanford/diffusion_policy). We sincerely thank the authors of diffusion policy for open-sourcing such an elegant codebase!
