@@ -103,7 +103,7 @@ Then
 File > Open RRD file
 ```
 
-##BibTex
+## BibTex
 
 If you find this codebase useful, consider citing:
 
