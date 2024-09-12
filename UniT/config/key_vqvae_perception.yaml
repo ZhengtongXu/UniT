@@ -27,7 +27,7 @@ model:
   vq_model_config:
     embed_dim: 3
     n_embed: 1024
-    ckpt_path: representation_models/2024-08-01T15-09-47vq/checkpoints/checkpoint-epoch=300.ckpt
+    ckpt_path: representation_models/2024-08-01T15-09-47vq/checkpoints/checkpoint-epoch=342.ckpt
     ddconfig:
       double_z: False
       z_channels: 3

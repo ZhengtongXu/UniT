@@ -56,6 +56,7 @@ $ python train.py --config-dir=./UniT/config --config-name=mae_representation_ke
 
 We provide multiple YAML files as examples for representation learning, covering all the methods benchmarked in our paper. Feel free to explore and experiment with them!
 
+For a quick implementation, we offer the UniT representation model, pretrained using the Allen key data, in this [folder](https://drive.google.com/drive/u/0/folders/1h7LEpv7DFSN3-MpCDPeyHbNRfPuVBqTL).
 
 ## Tactile Perception Training
 All logs from tactile perception training will be uploaded to wandb. Login to [wandb](https://wandb.ai) (if you haven't already)
@@ -66,7 +67,7 @@ For example, deploy the trained UniT representation to the in-hand 3D pose estim
 ```console
 $ python train.py --config-dir=./UniT/config --config-name=key_vqvae_perception.yaml hydra.run.dir=data/outputs/your_folder_name
 ```
-Please note that you need to specify the path to the pretrained VQVAE in the YAML config file.
+Please ensure that the path to the pretrained VQVAE is specified in the YAML configuration file. You may use our provided pretrained representation model available [here](https://drive.google.com/drive/u/0/folders/1h7LEpv7DFSN3-MpCDPeyHbNRfPuVBqTL), or alternatively, you can train your own representation models using either our released data or your own dataset.
 
 Similary, you can run other config files to launch in-hand 3D pose estimation training with all different methods.
 

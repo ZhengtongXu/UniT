@@ -1,4 +1,5 @@
 data/
+lightning_logs/
 third_party/
 representation_models/
 __pycache__/
