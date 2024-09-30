@@ -58,6 +58,9 @@ We provide multiple YAML files as examples for representation learning, covering
 
 For a quick implementation, we offer the UniT representation model, pretrained using the Allen key data, in this [folder](https://drive.google.com/drive/u/0/folders/1h7LEpv7DFSN3-MpCDPeyHbNRfPuVBqTL).
 
+Please note that the pretrained representation is based on the GelSight Mini with markers. If you're using a GelSight Mini without markers or another version of GelSight, consider training the representation from scratch with your own data. Additionally, we cropped the raw images from the GelSight Mini with markers, removing the edges where no markers were present. Specifically, we use [gsmini](https://github.com/raghavauppuluri13/gsmini) and [this recorder](https://github.com/ZhengtongXu/UniT/blob/main/UniT/utils/tactile_recorder.py) for data streaming and cropping. Please compare your raw images with those displayed on our [website](https://zhengtongxu.github.io/unifiedtactile.github.io/)  to check whether you are using a significantly different cropping method. If so, consider cropping your data similarly or training the representation from scratch using your data.
+
+
 ## Tactile Perception Training
 All logs from tactile perception training will be uploaded to wandb. Login to [wandb](https://wandb.ai) (if you haven't already)
 ```console
