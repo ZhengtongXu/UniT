@@ -189,13 +189,14 @@ class TrainT3PerceptionWorkspace(BaseWorkspace):
                             val_linear_loss = torch.mean(torch.tensor(val_linear_losses)).item()
                             val_rotation_loss = torch.mean(torch.tensor(val_rotation_losses)).item()
                             # log epoch average validation loss
-                            if cfg.model.task_type == "classification":
-                                step_log['val_loss'] = val_loss
-                                step_log['accuracy'] = val_linear_loss
-                            elif cfg.model.task_type == "6Dpose":
-                                step_log['val_loss'] = val_loss
-                                step_log['val_linear_loss'] = val_linear_loss
-                                step_log['val_rotation_loss'] = val_rotation_loss
+                            if "task_type" in cfg.model:
+                                if cfg.model.task_type == "classification":
+                                    step_log['val_loss'] = val_loss
+                                    step_log['accuracy'] = val_linear_loss
+                                elif cfg.model.task_type == "6Dpose":
+                                    step_log['val_loss'] = val_loss
+                                    step_log['val_linear_loss'] = val_linear_loss
+                                    step_log['val_rotation_loss'] = val_rotation_loss
                             else:
                                 step_log['val_loss'] = val_loss
 
