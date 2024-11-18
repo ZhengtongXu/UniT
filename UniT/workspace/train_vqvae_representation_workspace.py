@@ -39,6 +39,7 @@ from pytorch_lightning.utilities import rank_zero_only
 import wandb
 import copy
 from UniT.dataset.tactile_representation_dataset import TactileRepresentationDataset
+from UniT.dataset.tactile_representation_dataset_ycb import TactileRepresentationDatasetYcb
 from UniT.taming.models.vqgan import VQModel, WOVQModel
 from UniT.dataset.representation_wrapper import RepresentationWrapper
 from UniT.taming.logging_util import *
@@ -115,7 +116,10 @@ class TrainVqvaeRepresentationWorkspace(BaseWorkspace):
         cfg = copy.deepcopy(self.cfg)
         lightning_config = self.lightning_config
         opt = self.opt
-        human_demonstrations_img = TactileRepresentationDataset(**cfg.dataset)
+        if cfg.datatype == 'ycb':
+            human_demonstrations_img = TactileRepresentationDatasetYcb(**cfg.dataset)
+        else:
+            human_demonstrations_img = TactileRepresentationDataset(**cfg.dataset)
         data = RepresentationWrapper(human_demonstrations_img,cfg)
         bs, base_lr = cfg.batch_size, cfg.base_learning_rate
         ngpu = len(lightning_config.trainer.gpus.strip(",").split(','))

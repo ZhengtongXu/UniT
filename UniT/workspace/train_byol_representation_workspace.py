@@ -25,6 +25,7 @@ import copy
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 from UniT.dataset.tactile_representation_dataset import TactileRepresentationDataset
+from UniT.dataset.tactile_representation_dataset_ycb import TactileRepresentationDatasetYcb
 from UniT.dataset.representation_wrapper import RepresentationWrapper
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
@@ -50,7 +51,10 @@ class TrainByolRepresentationWorkspace(BaseWorkspace):
         cfg = copy.deepcopy(self.cfg)
         pretrain = cfg.pretrain
         model_type = cfg.model_type
-        human_demonstrations_img = TactileRepresentationDataset(**cfg.dataset)
+        if cfg.datatype == 'ycb':
+            human_demonstrations_img = TactileRepresentationDatasetYcb(**cfg.dataset)
+        else:
+            human_demonstrations_img = TactileRepresentationDataset(**cfg.dataset)
         data = RepresentationWrapper(human_demonstrations_img,cfg)
         dataloader = data.train_dataloader()
         device = self.device

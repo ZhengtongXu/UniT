@@ -70,9 +70,30 @@ For example, deploy the trained UniT representation to the in-hand 3D pose estim
 ```console
 $ python train.py --config-dir=./UniT/config --config-name=key_vqvae_perception.yaml hydra.run.dir=data/outputs/your_folder_name
 ```
+
+For in-hand 6D pose estimation task, run
+```console
+$ python train.py --config-dir=./UniT/config --config-name=key_vqvae_perception_6D.yaml hydra.run.dir=data/outputs/your_folder_name
+```
+
+Note that each job need to create a new folder to save the outputs. You don't need to create the folder manually, the system will automatically create a new folder for you when you run the job with a different `hydra.run.dir`.
+
 Please ensure that the path to the pretrained VQVAE is specified in the YAML configuration file. You may use our provided pretrained representation model available [here](https://drive.google.com/drive/u/0/folders/1h7LEpv7DFSN3-MpCDPeyHbNRfPuVBqTL), or alternatively, you can train your own representation models using either our released data or your own dataset.
 
-Similary, you can run other config files to launch in-hand 3D pose estimation training with all different methods.
+Similary, you can run other config files to launch in-hand 3D pose and 6D pose estimation training with all different methods.
+
+For classification on [YCB-Sight](https://github.com/Robo-Touch/YCB-Sight), train representations on YCB-Sight first. For example, to train UniT representation with `master_chef_can`, run
+```console
+$ python train.py --config-dir=./UniT/config --config-name=vqvae_representation_ycb_0.yaml
+```
+
+Then, run the following command to launch the classification task
+```console
+$ python train.py --config-dir=./UniT/config --config-name=vqvae_perception_clf.yaml hydra.run.dir=data/outputs/your_folder_name
+```
+Make sure to specify the correct path to the pretrained representation model in the YAML configuration file.
+
+We provide the replay buffer for YCB-Sight in this [folder](https://drive.google.com/drive/u/0/folders/1h7LEpv7DFSN3-MpCDPeyHbNRfPuVBqTL). We use [this script](https://github.com/ZhengtongXu/UniT/blob/main/UniT/ycb_sight_to_replaybuffer.py) to convert the YCB-Sight data to the replay buffer format, which is more compatible with our codebase.
 
 ## Policy Training
 For example, to train the diffusion policy with UniT for the chicken legs hanging task, run

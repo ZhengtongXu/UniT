@@ -17,7 +17,7 @@ from diffusion_policy.common.sampler import (
     SequenceSampler, get_val_mask, downsample_mask)
 from UniT.dataset.real_data_conversion import real_data_to_replay_buffer
 
-class TactilePerceptionDataset(BaseImageDataset):
+class TactileRepresentationDatasetYcb(BaseImageDataset):
     def __init__(self,
             shape_meta: dict,
             dataset_path: str,
@@ -27,10 +27,10 @@ class TactilePerceptionDataset(BaseImageDataset):
             n_obs_steps=None,
             n_latency_steps=0,
             seed=42,
-            val_ratio=0.2,
+            val_ratio=0.0,
             max_train_episodes=None,
             resized_image_shape=(128, 160),
-            data_type = '3Dpose',
+            index=[0],
         ):
         assert os.path.isdir(dataset_path)
         
@@ -60,13 +60,12 @@ class TactilePerceptionDataset(BaseImageDataset):
             n_episodes=replay_buffer.n_episodes, 
             val_ratio=val_ratio,
             seed=seed)
-        # print which episodes are used for validation
-        print('Validation episodes:', np.where(val_mask)[0])
-        train_mask = ~val_mask
-        train_mask = downsample_mask(
-            mask=train_mask, 
-            max_n=max_train_episodes, 
-            seed=seed)
+        # use index to select subset of episodes
+        # then construct train mask
+        train_mask = np.zeros(replay_buffer.n_episodes, dtype=bool)
+        for i in index:
+            train_mask[i] = True
+
 
         sampler = SequenceSampler(
             replay_buffer=replay_buffer, 
@@ -89,7 +88,7 @@ class TactilePerceptionDataset(BaseImageDataset):
         # Dummy value
         self.horizon = 1
         self.n_obs_steps = 1
-        self.data_type = data_type
+        self.index = index
     def get_validation_dataset(self):
         val_set = copy.copy(self)
         val_set.sampler = SequenceSampler(
@@ -102,42 +101,35 @@ class TactilePerceptionDataset(BaseImageDataset):
         val_set.val_mask = ~self.val_mask
         return val_set
 
+    def get_all_actions(self) -> torch.Tensor:
+        return torch.from_numpy(self.replay_buffer['action'])
+
     def __len__(self):
         return len(self.sampler)
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         threadpool_limits(1)
         data = self.sampler.sample_sequence(idx)
-
-        # to save RAM, only return first n_obs_steps of OBS
-        # since the rest will be discarded anyway.
-        # when self.n_obs_steps is None
-        # this slice does nothing (takes all)
-        T_slice = slice(self.n_obs_steps)
         obs_dict = dict()
-
-        if self.data_type == '6Dpose':
-            tactile_left_image = (data['tactile_left_image'][T_slice].astype(np.float32) / 255.)[0]
-            H,W = self.resized_image_shape
-            resized_image = cv2.resize(tactile_left_image, (W,H))
-            obs_dict['image'] = resized_image
-            # save ram
-            del data['tactile_left_image']
-        elif self.data_type == '3Dpose':
-
-            tactile_image = (data['tactile_image'][T_slice].astype(np.float32) / 255.)[0]
-            H,W = self.resized_image_shape
-            resized_image = cv2.resize(tactile_image, (W,H))
-            obs_dict['image'] = resized_image
-            # save ram
-            del data['tactile_image']
-
-        for key in self.lowdim_keys:
-            obs_dict[key] = data[key][T_slice][0].astype(np.float32)
+        for key in self.rgb_keys:
+            # move channel last to channel first
+            # T,H,W,C
+            # convert uint8 image to float32
+            obs_dict[key] = np.moveaxis(data[key],-1,1
+                ).astype(np.float32) / 255.
+            
+            # T,C,H,W
             # save ram
             del data[key]
-        
-        return obs_dict
+
+        del data
+        transposed_image = obs_dict['image'][0].transpose(1, 2, 0)
+        H,W = self.resized_image_shape
+        resized_image = cv2.resize(transposed_image, (W,H))
+        tactile_image = {'image': resized_image}
+
+        return tactile_image
+
 def _get_replay_buffer(dataset_path):
     # load data
     cv2.setNumThreads(1)

@@ -6,7 +6,7 @@ from timm.models.vision_transformer import Block
 from timm.models.layers import trunc_normal_
 from einops import repeat, rearrange
 from einops.layers.torch import Rearrange
-
+from scipy.spatial.transform import Rotation as R
 
 def quaternion_angle_loss(q_pred, q_true):
     q_pred = q_pred / torch.norm(q_pred, dim=1, keepdim=True)
@@ -88,7 +88,7 @@ class MlpHead(nn.Module):
         return self.mlp_layers(x)
     
 class ResNetPerception(nn.Module):
-    def __init__(self, num_classes=4, hidden1_dim=256, hidden2_dim=128, dropout_rate=0.2,backbone = 'resnet34', pretrained = False):
+    def __init__(self, num_classes=4, hidden1_dim=256, hidden2_dim=128, dropout_rate=0.2,backbone = 'resnet34', pretrained = False, freeze=False):
         super(ResNetPerception, self).__init__()
         if backbone == 'resnet34':
             self.model = timm.create_model('resnet34', pretrained=pretrained)
@@ -102,6 +102,12 @@ class ResNetPerception(nn.Module):
         # Replace the default fully connected layer with MLPHead
         in_features = self.model.fc.in_features
         self.model.fc = MlpHead(in_features, hidden1_dim=hidden1_dim, hidden2_dim=hidden2_dim, output_dim=num_classes, dropout_rate=dropout_rate)
-
+        if freeze:
+            for param in self.model.parameters():
+                param.requires_grad = False
+            # unfreeze the MLPHead
+            for param in self.model.fc.parameters():
+                param.requires_grad = True
+    
     def forward(self, x):
         return self.model(x)

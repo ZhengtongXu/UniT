@@ -1,4 +1,5 @@
 data/
+t3dataset/
 lightning_logs/
 third_party/
 representation_models/

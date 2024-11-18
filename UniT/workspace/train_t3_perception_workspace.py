@@ -130,7 +130,7 @@ class TrainT3PerceptionWorkspace(BaseWorkspace):
                             train_sampling_batch = batch
 
                         # compute loss
-                        raw_loss = self.model.compute_loss(batch)
+                        raw_loss, _, _ = self.model.compute_loss(batch)
                         loss = raw_loss / cfg.training.gradient_accumulate_every
                         loss.backward()
                         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0, norm_type=2)
@@ -171,19 +171,33 @@ class TrainT3PerceptionWorkspace(BaseWorkspace):
                 if (self.epoch % cfg.training.val_every) == 0:
                     with torch.no_grad():
                         val_losses = list()
+                        val_linear_losses = list()
+                        val_rotation_losses = list()
                         with tqdm.tqdm(val_dataloader, desc=f"Validation epoch {self.epoch}", 
                                 leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                             for batch_idx, batch in enumerate(tepoch):
                                 batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
-                                loss = self.model.compute_loss(batch)
+                                loss, linear_loss, rotation_loss = self.model.compute_loss(batch)
                                 val_losses.append(loss)
+                                val_linear_losses.append(linear_loss)
+                                val_rotation_losses.append(rotation_loss)
                                 if (cfg.training.max_val_steps is not None) \
                                     and batch_idx >= (cfg.training.max_val_steps-1):
                                     break
                         if len(val_losses) > 0:
                             val_loss = torch.mean(torch.tensor(val_losses)).item()
+                            val_linear_loss = torch.mean(torch.tensor(val_linear_losses)).item()
+                            val_rotation_loss = torch.mean(torch.tensor(val_rotation_losses)).item()
                             # log epoch average validation loss
-                            step_log['val_loss'] = val_loss
+                            if cfg.model.task_type == "classification":
+                                step_log['val_loss'] = val_loss
+                                step_log['accuracy'] = val_linear_loss
+                            elif cfg.model.task_type == "6Dpose":
+                                step_log['val_loss'] = val_loss
+                                step_log['val_linear_loss'] = val_linear_loss
+                                step_log['val_rotation_loss'] = val_rotation_loss
+                            else:
+                                step_log['val_loss'] = val_loss
 
 
                 # checkpoint
