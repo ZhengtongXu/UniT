@@ -1,4 +1,4 @@
-# UniT: Unified Tactile Representation for Robot Learning 
+# UniT: Data Efficient Tactile Representation with Generalization to Unseen Objects
 
 
 [Project](https://zhengtongxu.github.io/unit-website/) | [arXiv](https://arxiv.org/abs/2408.06481) | [Summary Video](https://drive.google.com/file/d/1RrW7xk7SjMaIHqksxg0vrhm7SPVrPtg8/view?usp=sharing)
@@ -6,7 +6,7 @@
 ![ChickenLegsHanging](teasers/teaser_chicken.gif)
 
 
-UniT is a novel approach to tactile representation learning, using VQVAE to learn a compact latent space and serve as the tactile representation. It uses tactile images obtained from a single simple object to train the representation with transferability and generalizability. This tactile representation can be zero-shot transferred to various downstream tasks, including perception tasks and manipulation policy learning. Our benchmarking on an in-hand 3D pose estimation task shows that UniT outperforms existing visual and tactile representation learning methods. Additionally, UniT's effectiveness in policy learning is demonstrated across three real-world tasks involving diverse manipulated objects and complex robot-object-environment interactions. Through extensive experimentation, UniT is shown to be a simple-to-train, plug-and-play, yet widely effective method for tactile representation learning.
+UniT is an approach to tactile representation learning, using VQGAN to learn a compact latent space and serve as the tactile representation. It uses tactile images obtained from a single simple object to train the representation with transferability and generalizability. This tactile representation can be zero-shot transferred to various downstream tasks, including perception tasks and manipulation policy learning. Our benchmarking on an in-hand 3D pose estimation task shows that UniT outperforms existing visual and tactile representation learning methods. Additionally, UniT's effectiveness in policy learning is demonstrated across three real-world tasks involving diverse manipulated objects and complex robot-object-environment interactions. Through extensive experimentation, UniT is shown to be a simple-to-train, plug-and-play, yet widely effective method for tactile representation learning.
 
 ## Dataset
 
