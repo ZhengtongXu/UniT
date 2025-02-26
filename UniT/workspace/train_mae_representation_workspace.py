@@ -13,9 +13,7 @@ import torch
 from omegaconf import OmegaConf
 import pathlib
 import math
-import torch
 from tqdm import tqdm
-from omegaconf import OmegaConf
 from UniT.model.mae.utils import *
 import numpy as np
 import random
