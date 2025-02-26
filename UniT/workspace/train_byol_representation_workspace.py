@@ -10,10 +10,8 @@ if __name__ == "__main__":
 import os
 import hydra
 import torch
-from omegaconf import OmegaConf
 import pathlib
 import math
-import torch
 from tqdm import tqdm
 from omegaconf import OmegaConf
 from byol_pytorch import BYOL
