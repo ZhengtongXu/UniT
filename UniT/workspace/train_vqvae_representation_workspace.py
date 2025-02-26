@@ -7,16 +7,10 @@ if __name__ == "__main__":
     sys.path.append(ROOT_DIR)
     os.chdir(ROOT_DIR)
 
-import os
 import hydra
-import torch
 import pathlib
-from torch.utils.data import DataLoader
-import copy
 import random
-import wandb
 import tqdm
-import numpy as np
 import shutil
 from diffusion_policy.workspace.base_workspace import BaseWorkspace
 import torchvision
