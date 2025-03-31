@@ -1,5 +1,6 @@
 # UniT: Data Efficient Tactile Representation with Generalization to Unseen Objects
 
+_Accepted by IEEE RA-L_
 
 [Project](https://zhengtongxu.github.io/unit-website/) | [arXiv](https://arxiv.org/abs/2408.06481) | [Summary Video](https://drive.google.com/file/d/1RrW7xk7SjMaIHqksxg0vrhm7SPVrPtg8/view?usp=sharing)
 
