@@ -134,10 +134,10 @@ File > Open RRD file
 If you find this codebase useful, consider citing:
 
 ```bibtex
-@misc{xu2024unit,
-      title={{UniT}: Unified Tactile Representation for Robot Learning}, 
+@misc{xu2025unit,
+      title={{UniT}: Data Efficient Tactile Representation with Generalization to Unseen Objects}, 
       author={Zhengtong Xu and Raghava Uppuluri and Xinwei Zhang and Cael Fitch and Philip Glen Crandall and Wan Shou and Dongyi Wang and Yu She},
-      year={2024},
+      year={2025},
       eprint={2408.06481},
       archivePrefix={arXiv},
       primaryClass={cs.RO},
