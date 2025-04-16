@@ -13,7 +13,7 @@ from diffusion_policy.model.diffusion.mask_generator import LowdimMaskGenerator
 from UniT.model.vision.timm_obs_encoder import TimmObsEncoder
 from diffusion_policy.common.pytorch_util import dict_apply
 from UniT.taming.models.vqgan import VQModel
-from UniT.model.tactile.utils import ConvPoolingHead
+from UniT.model.tactile.utils import ConvPoolingPolicyHead as ConvPoolingHead
 
 class DiffusionUnitPolicy(BaseImagePolicy):
     def __init__(self, 

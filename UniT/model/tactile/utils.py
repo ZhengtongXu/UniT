@@ -35,7 +35,62 @@ class SEBlock(nn.Module):
         y = self.fc(y).view(b, c, 1, 1)
         return x * y.expand_as(x)
     
-    
+
+class ConvPoolingPolicyHead(nn.Module):
+    def __init__(self, input_channels, 
+                 conv1_out_channels=128, 
+                 conv2_out_channels=256, 
+                 conv3_out_channels=512,
+                 kernel_size=3, padding=1, use_se=False):
+        super(ConvPoolingPolicyHead, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels=input_channels, 
+                               out_channels=conv1_out_channels, 
+                               kernel_size=kernel_size, 
+                               padding=padding)
+        self.ln1 = nn.LayerNorm(conv1_out_channels) 
+        self.conv2 = nn.Conv2d(in_channels=conv1_out_channels, 
+                               out_channels=conv2_out_channels, 
+                               kernel_size=kernel_size, 
+                               padding=padding)
+        self.ln2 = nn.LayerNorm(conv2_out_channels)
+        self.conv3 = nn.Conv2d(in_channels=conv2_out_channels, 
+                               out_channels=conv3_out_channels, 
+                               kernel_size=kernel_size, 
+                               padding=padding)
+        self.ln3 = nn.LayerNorm(conv3_out_channels)
+
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        if use_se:
+            self.se1 = SEBlock(conv1_out_channels)
+            self.se2 = SEBlock(conv2_out_channels)
+        self.use_se = use_se
+        
+    def forward(self, x):
+
+        x = self.conv1(x)                        
+        x = x.permute(0, 2, 3, 1)                  
+        x = self.ln1(x)
+        x = x.permute(0, 3, 1, 2)                    
+        x = F.leaky_relu(x, negative_slope=0.01)
+        if self.use_se:
+            x = self.se1(x)
+        x = self.conv2(x)                         
+        x = x.permute(0, 2, 3, 1)                   
+        x = self.ln2(x)
+        x = x.permute(0, 3, 1, 2)                    
+        x = F.leaky_relu(x, negative_slope=0.01)
+        if self.use_se:
+            x = self.se2(x)
+        x = self.conv3(x)                          
+        x = x.permute(0, 2, 3, 1)                    
+        x = self.ln3(x)
+        x = x.permute(0, 3, 1, 2)                    
+        x = F.leaky_relu(x, negative_slope=0.01)
+        x = self.pool(x)                         
+        x = x.view(x.size(0), -1)                    
+        return x
+
+
 class ConvPoolingHead(nn.Module):
     def __init__(self, input_channels, conv1_out_channels=128, conv2_out_channels=256, conv3_out_channels=512,
                  kernel_size=3, padding=1, group_num=4, pool_kernel_size=2, pool_stride=2, pool_padding=0):
