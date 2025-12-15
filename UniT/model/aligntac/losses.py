@@ -3,64 +3,14 @@ AlignTac Loss Functions
 
 包含:
 1. AlignTacLoss: 多任务损失，含不确定性加权
-2. OrthogonalityLoss: 特征正交约束
-3. FlowLoss: 光流预测损失
-4. PhaseClassificationLoss: 物理阶段分类损失
+2. FlowLoss: 光流预测损失
+3. PhaseClassificationLoss: 物理阶段分类损失
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Dict, Tuple, Optional
-
-
-class OrthogonalityLoss(nn.Module):
-    """
-    正交约束损失
-    
-    强制几何特征和动力学特征解耦
-    L_orth = E[cos_sim(z_geo, z_dyn)^2]
-    """
-    
-    def __init__(self, reduce: str = 'mean'):
-        super().__init__()
-        self.reduce = reduce
-    
-    def forward(
-        self, 
-        z_geo: torch.Tensor, 
-        z_dyn: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Args:
-            z_geo: 几何特征 (B, C, H, W) or (B, D)
-            z_dyn: 动力学特征 (B, C, H, W) or (B, D)
-        
-        Returns:
-            ortho_loss: 正交损失标量
-        """
-        # 展平为 (B, D)
-        if z_geo.dim() == 4:
-            z_geo = F.adaptive_avg_pool2d(z_geo, 1).flatten(1)
-        if z_dyn.dim() == 4:
-            z_dyn = F.adaptive_avg_pool2d(z_dyn, 1).flatten(1)
-        
-        # L2归一化
-        z_geo = F.normalize(z_geo, dim=1)
-        z_dyn = F.normalize(z_dyn, dim=1)
-        
-        # 余弦相似度
-        cos_sim = torch.sum(z_geo * z_dyn, dim=1)
-        
-        # 平方惩罚
-        loss = cos_sim ** 2
-        
-        if self.reduce == 'mean':
-            return loss.mean()
-        elif self.reduce == 'sum':
-            return loss.sum()
-        else:
-            return loss
 
 
 class FlowLoss(nn.Module):
@@ -205,7 +155,7 @@ class AlignTacLoss(nn.Module):
     """
     AlignTac多任务损失
     
-    总损失 = w_rgb * L_rgb + w_flow * L_flow + w_ortho * L_ortho + w_phase * L_phase + L_quant
+    总损失 = w_rgb * L_rgb + w_flow * L_flow + w_phase * L_phase + L_quant
     
     使用基于不确定性的自动加权:
     L = sum_i [ exp(-log_sigma_i) * L_i + log_sigma_i ]
@@ -216,7 +166,6 @@ class AlignTacLoss(nn.Module):
         # 损失权重
         rgb_weight: float = 1.0,
         flow_weight: float = 1.0,
-        ortho_weight: float = 0.1,
         phase_weight: float = 0.5,
         quant_weight: float = 1.0,
         # 损失配置
@@ -234,12 +183,10 @@ class AlignTacLoss(nn.Module):
         # 固定权重
         self.rgb_weight = rgb_weight
         self.flow_weight = flow_weight
-        self.ortho_weight = ortho_weight
         self.phase_weight = phase_weight
         self.quant_weight = quant_weight
         
         # 子损失
-        self.ortho_loss = OrthogonalityLoss()
         self.flow_loss = FlowLoss(loss_type=flow_loss_type)
         self.phase_loss = PhaseClassificationLoss(
             num_classes=num_phases,
@@ -252,7 +199,6 @@ class AlignTacLoss(nn.Module):
         if use_uncertainty_weighting:
             self.log_var_rgb = nn.Parameter(torch.zeros(1))
             self.log_var_flow = nn.Parameter(torch.zeros(1))
-            self.log_var_ortho = nn.Parameter(torch.zeros(1))
             self.log_var_phase = nn.Parameter(torch.zeros(1))
     
     def forward(
@@ -260,8 +206,6 @@ class AlignTacLoss(nn.Module):
         # 预测
         rgb_pred: torch.Tensor,
         flow_pred: torch.Tensor,
-        h_geo: torch.Tensor,
-        h_dyn: torch.Tensor,
         phase_logits: Optional[torch.Tensor] = None,
         quant_loss: Optional[torch.Tensor] = None,
         # GT
@@ -275,8 +219,6 @@ class AlignTacLoss(nn.Module):
         Args:
             rgb_pred: RGB重建 (B, 3, H, W)
             flow_pred: 光流预测 (B, 2, H, W)
-            h_geo: 几何特征 (B, C, h, w)
-            h_dyn: 动力学特征 (B, C, h, w)
             phase_logits: 阶段分类logits (B, num_phases)
             quant_loss: 量化损失 (已计算)
             rgb_gt: RGB GT (B, 3, H, W)
@@ -323,20 +265,7 @@ class AlignTacLoss(nn.Module):
             
             total_loss = total_loss + weighted_flow
         
-        # ========== 4. 正交约束 (Phase 2+) ==========
-        if training_phase >= 2:
-            loss_ortho = self.ortho_loss(h_geo, h_dyn)
-            log_dict['loss/ortho'] = loss_ortho.detach()
-            
-            if self.use_uncertainty_weighting:
-                precision_ortho = torch.exp(-self.log_var_ortho)
-                weighted_ortho = precision_ortho * loss_ortho + self.log_var_ortho
-            else:
-                weighted_ortho = self.ortho_weight * loss_ortho
-            
-            total_loss = total_loss + weighted_ortho
-        
-        # ========== 5. 阶段分类 (Phase 3) ==========
+        # ========== 4. 阶段分类 (Phase 3) ==========
         if training_phase >= 3 and phase_logits is not None and phase_label is not None:
             loss_phase, acc = self.phase_loss(phase_logits, phase_label)
             log_dict['loss/phase'] = loss_phase.detach()

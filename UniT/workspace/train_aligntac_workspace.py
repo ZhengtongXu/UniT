@@ -1,9 +1,9 @@
 """
-AlignTac Training Workspace
+AlignTac Training Workspace (单卡版)
 
 支持:
 1. 课程学习 (3阶段)
-2. 多GPU分布式训练 (DDP)
+2. 单GPU训练
 3. 混合精度训练
 4. Wandb/Tensorboard日志
 5. 模型检查点保存
@@ -19,7 +19,6 @@ import torch
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor, EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
-from pytorch_lightning.strategies import DDPStrategy
 from omegaconf import OmegaConf
 
 # 添加项目根目录到路径
@@ -35,7 +34,7 @@ class CurriculumLearningCallback(pl.Callback):
     课程学习回调
     
     Phase 1: RGB重建 (0 ~ phase1_epochs)
-    Phase 2: +光流+正交约束 (phase1_epochs ~ phase2_epochs)
+    Phase 2: +光流预测 (phase1_epochs ~ phase2_epochs)
     Phase 3: +阶段分类 (phase2_epochs ~ end)
     """
     
@@ -89,7 +88,7 @@ class ImageLogCallback(pl.Callback):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Train AlignTac VQ-VAE')
+    parser = argparse.ArgumentParser(description='Train AlignTac VQ-VAE (单卡)')
     
     # 配置文件
     parser.add_argument('--config', '-c', type=str, required=True,
@@ -107,7 +106,6 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=None)
     parser.add_argument('--lr', type=float, default=None)
     parser.add_argument('--epochs', type=int, default=None)
-    parser.add_argument('--gpus', type=int, default=None)
     
     # 课程学习
     parser.add_argument('--phase1_epochs', type=int, default=30)
@@ -142,8 +140,6 @@ def main():
         config.model.base_learning_rate = args.lr
     if args.epochs:
         config.trainer.max_epochs = args.epochs
-    if args.gpus:
-        config.trainer.devices = args.gpus
     
     # 实验名称
     exp_name = args.exp_name or f"aligntac_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -227,11 +223,11 @@ def main():
             )
         )
     
-    # ==================== Trainer ====================
+    # ==================== Trainer (单卡) ====================
     trainer_kwargs = {
         'max_epochs': config.trainer.max_epochs,
         'accelerator': 'gpu',
-        'devices': config.trainer.devices,
+        'devices': 1,  # 单卡训练
         'precision': config.trainer.get('precision', '16-mixed'),
         'callbacks': callbacks,
         'logger': loggers,
@@ -241,19 +237,14 @@ def main():
         'check_val_every_n_epoch': config.trainer.get('check_val_every_n_epoch', 1),
     }
     
-    # 多GPU策略
-    if config.trainer.devices > 1:
-        trainer_kwargs['strategy'] = DDPStrategy(find_unused_parameters=True)
-    
     # Debug模式
     if args.debug:
         trainer_kwargs['fast_dev_run'] = True
-        trainer_kwargs['devices'] = 1
     
     trainer = pl.Trainer(**trainer_kwargs)
     
     # ==================== 训练 ====================
-    print(f"[AlignTac] Starting training...")
+    print(f"[AlignTac] Starting training (单卡)...")
     print(f"[AlignTac] Train samples: {len(data_module.train_dataset)}")
     print(f"[AlignTac] Val samples: {len(data_module.val_dataset)}")
     

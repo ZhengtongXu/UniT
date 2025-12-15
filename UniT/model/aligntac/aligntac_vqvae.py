@@ -34,7 +34,6 @@ class AlignTacVQVAE(pl.LightningModule):
         geo_embed_dim: 几何特征维度
         dyn_embed_dim: 动力学特征维度
         ckpt_path: 预训练模型路径
-        freeze_encoder: 是否冻结encoder
     """
     
     def __init__(
@@ -53,7 +52,6 @@ class AlignTacVQVAE(pl.LightningModule):
         sane_index_shape: bool = False,
         # AlignTac特有参数
         use_dual_quantizer: bool = True,
-        ortho_weight: float = 0.1,
         flow_weight: float = 1.0,
         rgb_weight: float = 1.0,
         phase_classifier: bool = False,
@@ -67,7 +65,6 @@ class AlignTacVQVAE(pl.LightningModule):
         self.geo_embed_dim = geo_embed_dim
         self.dyn_embed_dim = dyn_embed_dim
         self.use_dual_quantizer = use_dual_quantizer
-        self.ortho_weight = ortho_weight
         self.flow_weight = flow_weight
         self.rgb_weight = rgb_weight
         self.phase_classifier = phase_classifier
@@ -159,7 +156,7 @@ class AlignTacVQVAE(pl.LightningModule):
             self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
         
         # 训练阶段控制 (课程学习)
-        self.training_phase = 3  # 1: RGB only, 2: +Flow+Ortho, 3: Full
+        self.training_phase = 3  # 1: RGB only, 2: +Flow, 3: Full
         
         if monitor is not None:
             self.monitor = monitor
@@ -193,7 +190,7 @@ class AlignTacVQVAE(pl.LightningModule):
         """设置课程学习阶段
         
         Phase 1: 只训练RGB重建 (视觉预热)
-        Phase 2: 加入Flow预测 + 正交约束 (动力学注入)
+        Phase 2: 加入Flow预测 (动力学注入)
         Phase 3: 全部损失 (全局微调)
         """
         assert phase in [1, 2, 3], f"Invalid phase: {phase}"
@@ -324,27 +321,6 @@ class AlignTacVQVAE(pl.LightningModule):
         h_geo, h_dyn = self.to_latent(x)
         return torch.cat([h_geo, h_dyn], dim=1)
     
-    def compute_ortho_loss(self, h_geo: torch.Tensor, h_dyn: torch.Tensor) -> torch.Tensor:
-        """
-        计算正交约束损失
-        
-        强迫几何特征和动力学特征互不包含
-        L_orth = CosineSimilarity(h_geo, h_dyn)^2
-        """
-        # 全局平均池化
-        geo_flat = F.adaptive_avg_pool2d(h_geo, 1).flatten(1)
-        dyn_flat = F.adaptive_avg_pool2d(h_dyn, 1).flatten(1)
-        
-        # 归一化
-        geo_norm = F.normalize(geo_flat, dim=1)
-        dyn_norm = F.normalize(dyn_flat, dim=1)
-        
-        # 余弦相似度的平方
-        cos_sim = torch.sum(geo_norm * dyn_norm, dim=1)
-        ortho_loss = torch.mean(cos_sim ** 2)
-        
-        return ortho_loss
-    
     def get_input(self, batch: Dict, keys: list = ['stacked_image', 'image_t', 'flow_gt']):
         """从batch中提取输入数据"""
         outputs = {}
@@ -370,8 +346,6 @@ class AlignTacVQVAE(pl.LightningModule):
         flow_pred = outputs['flow_pred']
         loss_geo = outputs['quant_loss_geo']
         loss_dyn = outputs['quant_loss_dyn']
-        h_geo = outputs['h_geo']
-        h_dyn = outputs['h_dyn']
         
         # ==================== 计算损失 ====================
         log_dict = {}
@@ -400,18 +374,12 @@ class AlignTacVQVAE(pl.LightningModule):
                 log_dict['train/flow_loss'] = loss_flow.detach()
                 log_dict['train/sigma_flow'] = torch.exp(self.log_sigma_flow).detach()
             
-            # 3. 正交约束 (Phase 2+)
-            if self.training_phase >= 2:
-                loss_ortho = self.compute_ortho_loss(h_geo, h_dyn)
-                total_loss = total_loss + self.ortho_weight * loss_ortho
-                log_dict['train/ortho_loss'] = loss_ortho.detach()
-            
-            # 4. 动力学量化损失
+            # 3. 动力学量化损失 (Phase 2+)
             if self.training_phase >= 2:
                 total_loss = total_loss + loss_dyn.mean()
                 log_dict['train/quant_loss_dyn'] = loss_dyn.detach().mean()
             
-            # 5. 物理阶段分类 (Phase 3)
+            # 4. 物理阶段分类 (Phase 3)
             if self.training_phase >= 3 and self.phase_classifier and 'phase_label' in batch:
                 phase_gt = batch['phase_label']
                 phase_logits = outputs['phase_logits']
@@ -457,8 +425,6 @@ class AlignTacVQVAE(pl.LightningModule):
         rgb_pred = outputs['rgb_pred']
         flow_pred = outputs['flow_pred']
         loss_geo = outputs['quant_loss_geo']
-        h_geo = outputs['h_geo']
-        h_dyn = outputs['h_dyn']
         
         # RGB重建损失
         loss_rgb, log_ae = self.loss(
@@ -474,10 +440,6 @@ class AlignTacVQVAE(pl.LightningModule):
         if flow_gt is not None:
             loss_flow = F.mse_loss(flow_pred, flow_gt)
             log_dict['val/flow_loss'] = loss_flow.detach()
-        
-        # 正交损失
-        loss_ortho = self.compute_ortho_loss(h_geo, h_dyn)
-        log_dict['val/ortho_loss'] = loss_ortho.detach()
         
         self.log_dict(log_dict, prog_bar=True, logger=True,
                      on_step=False, on_epoch=True, sync_dist=True)

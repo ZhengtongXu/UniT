@@ -1,5 +1,5 @@
 # AlignTac VQ-VAE 配置文件
-# 双流解耦的触觉表征学习
+# 双流解耦的触觉表征学习 (单卡版)
 
 model:
   target: UniT.model.aligntac.aligntac_vqvae.AlignTacVQVAE
@@ -35,12 +35,8 @@ model:
         disc_weight: 0.8
         codebook_weight: 1.0
         perceptual_weight: 1.0
-        # 可选: 使用预训练VGG特征
-        # use_actnorm: false
-        # n_classes: null
 
     # ==================== AlignTac特有参数 ====================
-    ortho_weight: 0.1          # 正交约束权重
     flow_weight: 1.0           # 光流预测权重
     rgb_weight: 1.0            # RGB重建权重
     
@@ -64,10 +60,9 @@ data:
   augment: true
   data_format: zarr            # 数据格式: zarr, hdf5, folder
 
-# ==================== 训练配置 ====================
+# ==================== 训练配置 (单卡) ====================
 trainer:
   max_epochs: 100
-  devices: 8                   # GPU数量 (8xA100)
   precision: 16-mixed          # 混合精度
   gradient_clip_val: 1.0
   accumulate_grad_batches: 1
@@ -77,26 +72,25 @@ trainer:
 # ==================== 课程学习配置 ====================
 curriculum:
   phase1_epochs: 30            # Phase 1: RGB重建
-  phase2_epochs: 60            # Phase 2: +Flow+Ortho
+  phase2_epochs: 60            # Phase 2: +Flow
   # Phase 3: +Classification (60~100)
 
 # ==================== 日志配置 ====================
 wandb:
-  enabled: true
+  enabled: false               # 默认关闭wandb
   project: aligntac
-  entity: null                 # 你的wandb用户名
+  entity: null
 
-# ==================== 注释说明 ====================
+# ==================== 使用说明 ====================
 # 
-# 训练命令:
+# 训练命令 (单卡):
 # python workspace/train_aligntac_workspace.py \
 #     --config config/aligntac_representation.yaml \
 #     --data_path /path/to/data \
 #     --output_dir ./outputs \
-#     --exp_name aligntac_v1 \
-#     --gpus 8
+#     --exp_name aligntac_v1
 #
-# 调试命令 (单GPU):
+# 调试命令:
 # python workspace/train_aligntac_workspace.py \
 #     --config config/aligntac_representation.yaml \
 #     --debug
@@ -105,8 +99,3 @@ wandb:
 # python workspace/train_aligntac_workspace.py \
 #     --config config/aligntac_representation.yaml \
 #     --skip_curriculum
-#
-# 从检查点恢复:
-# python workspace/train_aligntac_workspace.py \
-#     --config config/aligntac_representation.yaml \
-#     --resume outputs/xxx/checkpoints/last.ckpt
