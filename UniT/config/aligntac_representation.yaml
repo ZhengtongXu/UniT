@@ -1,0 +1,112 @@
+# AlignTac VQ-VAE 配置文件
+# 双流解耦的触觉表征学习
+
+model:
+  target: UniT.model.aligntac.aligntac_vqvae.AlignTacVQVAE
+  base_learning_rate: 4.5e-6
+  params:
+    # ==================== Encoder/Decoder配置 ====================
+    ddconfig:
+      double_z: false
+      z_channels: 256          # 共享特征维度
+      resolution: 224          # 输入分辨率
+      in_channels: 6           # 双帧输入 (会被模型覆盖)
+      out_ch: 3
+      ch: 128
+      ch_mult: [1, 1, 2, 2, 4]
+      num_res_blocks: 2
+      attn_resolutions: [16]
+      dropout: 0.0
+
+    # ==================== 量化配置 ====================
+    n_embed: 1024              # Codebook大小
+    embed_dim: 3               # 通用embed维度
+    geo_embed_dim: 3           # 几何特征量化维度
+    dyn_embed_dim: 3           # 动力学特征量化维度
+    use_dual_quantizer: true   # 使用双Codebook
+
+    # ==================== 损失配置 ====================
+    lossconfig:
+      target: UniT.taming.modules.losses.vqperceptual.VQLPIPSWithDiscriminator
+      params:
+        disc_conditional: false
+        disc_in_channels: 3
+        disc_start: 0
+        disc_weight: 0.8
+        codebook_weight: 1.0
+        perceptual_weight: 1.0
+        # 可选: 使用预训练VGG特征
+        # use_actnorm: false
+        # n_classes: null
+
+    # ==================== AlignTac特有参数 ====================
+    ortho_weight: 0.1          # 正交约束权重
+    flow_weight: 1.0           # 光流预测权重
+    rgb_weight: 1.0            # RGB重建权重
+    
+    # 物理阶段分类 (可选)
+    phase_classifier: false    # 是否使用阶段分类
+    num_phases: 5              # 阶段数量
+
+    # 预训练加载
+    ckpt_path: null            # 从UniT VQ-VAE预训练模型初始化
+
+# ==================== 数据配置 ====================
+data:
+  data_path: /path/to/your/tactile_data  # 替换为实际路径
+  batch_size: 32
+  num_workers: 8
+  image_size: 224
+  val_ratio: 0.1
+  frame_gap: 1                 # 双帧间隔
+  use_flow: true               # 使用光流监督
+  use_phase_label: false       # 使用阶段标签
+  augment: true
+  data_format: zarr            # 数据格式: zarr, hdf5, folder
+
+# ==================== 训练配置 ====================
+trainer:
+  max_epochs: 100
+  devices: 8                   # GPU数量 (8xA100)
+  precision: 16-mixed          # 混合精度
+  gradient_clip_val: 1.0
+  accumulate_grad_batches: 1
+  check_val_every_n_epoch: 1
+  early_stopping: false
+
+# ==================== 课程学习配置 ====================
+curriculum:
+  phase1_epochs: 30            # Phase 1: RGB重建
+  phase2_epochs: 60            # Phase 2: +Flow+Ortho
+  # Phase 3: +Classification (60~100)
+
+# ==================== 日志配置 ====================
+wandb:
+  enabled: true
+  project: aligntac
+  entity: null                 # 你的wandb用户名
+
+# ==================== 注释说明 ====================
+# 
+# 训练命令:
+# python workspace/train_aligntac_workspace.py \
+#     --config config/aligntac_representation.yaml \
+#     --data_path /path/to/data \
+#     --output_dir ./outputs \
+#     --exp_name aligntac_v1 \
+#     --gpus 8
+#
+# 调试命令 (单GPU):
+# python workspace/train_aligntac_workspace.py \
+#     --config config/aligntac_representation.yaml \
+#     --debug
+#
+# 跳过课程学习:
+# python workspace/train_aligntac_workspace.py \
+#     --config config/aligntac_representation.yaml \
+#     --skip_curriculum
+#
+# 从检查点恢复:
+# python workspace/train_aligntac_workspace.py \
+#     --config config/aligntac_representation.yaml \
+#     --resume outputs/xxx/checkpoints/last.ckpt
