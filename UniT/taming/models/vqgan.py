@@ -1,3 +1,16 @@
+"""
+=============================================================================
+VQ-VAE (Vector Quantized Variational AutoEncoder) 模型实现
+=============================================================================
+这是UniT框架中用于学习触觉表征的核心模型
+
+核心创新点:
+1. 将高维触觉图像压缩到紧凑的latent表示
+2. 使用离散codebook学习触觉的"原子模式"
+3. to_latent()方法提取连续特征(不量化)，用于下游策略学习
+=============================================================================
+"""
+
 import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
@@ -9,6 +22,24 @@ from UniT.taming.modules.vqvae.quantize import GumbelQuantize
 from UniT.taming.modules.vqvae.quantize import EMAVectorQuantizer
 
 class VQModel(pl.LightningModule):
+    """
+    VQ-VAE主模型类
+    
+    架构: Encoder → Quantizer → Decoder
+    
+    训练目标:
+    - 重建损失: 让重建图像接近原图
+    - 量化损失: 让encoder输出接近codebook
+    - 感知损失: 保留图像的感知质量
+    - GAN损失: 增强重建的真实感
+    
+    参数:
+        ddconfig: Encoder/Decoder配置
+        lossconfig: 损失函数配置
+        n_embed: Codebook大小 (如1024)
+        embed_dim: Code维度 (如3)
+        ckpt_path: 预训练模型路径
+    """
     def __init__(self,
                  ddconfig,
                  lossconfig,
@@ -24,17 +55,34 @@ class VQModel(pl.LightningModule):
                  ):
         super().__init__()
         self.image_key = image_key
+        
+        # 编码器: 将图像下采样为latent表示
+        # 例如: (B, 3, 128, 160) → (B, 3, 8, 10)
         self.encoder = Encoder(**ddconfig)
+        
+        # 解码器: 将latent上采样为图像
+        # 例如: (B, 3, 8, 10) → (B, 3, 128, 160)
         self.decoder = Decoder(**ddconfig)
+        
+        # 损失函数: 包含重建、感知、GAN等多个损失
         self.loss = instantiate_from_config(lossconfig)
+        
+        # 向量量化器: 将连续latent映射到离散codebook
+        # beta=0.25: commitment loss权重
         self.quantize = VectorQuantizer(n_embed, embed_dim, beta=0.25,
                                         remap=remap, sane_index_shape=sane_index_shape)
+        
+        # 量化前的通道调整: z_channels → embed_dim
         self.quant_conv = torch.nn.Conv2d(ddconfig["z_channels"], embed_dim, 1)
 
+        # 量化后的通道恢复: embed_dim → z_channels
         self.post_quant_conv = torch.nn.Conv2d(embed_dim, ddconfig["z_channels"], 1)
+        
+        # 加载预训练模型
         if ckpt_path is not None:
             print('init from ckpt')
             self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
+        
         self.image_key = image_key
         if colorize_nlabels is not None:
             assert type(colorize_nlabels)==int
@@ -43,6 +91,12 @@ class VQModel(pl.LightningModule):
             self.monitor = monitor
 
     def init_from_ckpt(self, path, ignore_keys=list()):
+        """
+        从检查点加载模型
+        
+        ignore_keys: 忽略的参数前缀列表
+        例如: ['loss', 'discriminator'] 不加载判别器参数
+        """
         sd = torch.load(path, map_location="cpu")["state_dict"]
         keys = list(sd.keys())
         for k in keys:
@@ -54,46 +108,120 @@ class VQModel(pl.LightningModule):
         print(f"Restored from {path}")
 
     def encode(self, x):
+        """
+        完整的编码过程(包含量化)
+        
+        流程:
+        1. encoder: 图像 → 连续latent
+        2. quant_conv: 通道调整
+        3. quantize: 连续latent → 离散latent
+        
+        返回:
+            quant: 量化后的latent
+            emb_loss: 量化损失
+            info: 量化信息
+        """
         h = self.encoder(x)
         h = self.quant_conv(h)
         quant, emb_loss, info = self.quantize(h)
         return quant, emb_loss, info
     
     def to_latent(self, x):
+        """
+        ★★★ 核心方法 ★★★
+        提取连续的latent表示(不量化)
+        
+        为什么重要?
+        1. 量化会损失信息 - 离散化丢失细节
+        2. 连续特征更适合策略学习 - 保留更多触觉信息
+        3. 梯度传播更顺畅 - 用于下游任务微调
+        
+        在UniT中的使用:
+        - DiffusionUnitPolicy使用此方法提取触觉特征
+        - 触觉特征与视觉特征融合后输入Diffusion Policy
+        
+        流程:
+        x (图像) → encoder → h1 (连续latent)
+                 → quant_conv → h2 (通道调整后的连续latent)
+        
+        注意: 没有调用self.quantize()，返回连续值而非离散code
+        """
         h1 = self.encoder(x)
         h2 = self.quant_conv(h1)
         return  h2
     
 
     def decode(self, quant):
+        """
+        从latent重建图像
+        
+        流程:
+        quant → post_quant_conv (通道恢复)
+              → decoder (上采样) → 重建图像
+        """
         quant = self.post_quant_conv(quant)
         dec = self.decoder(quant)
         return dec
 
     def decode_code(self, code_b):
+        """
+        从codebook索引直接解码
+        
+        用途: 可视化每个code代表的触觉模式
+        """
         quant_b = self.quantize.embed_code(code_b)
         dec = self.decode(quant_b)
         return dec
 
     def forward(self, input):
+        """
+        完整前向传播: 编码 → 量化 → 解码
+        
+        返回:
+            dec: 重建的图像
+            diff: 量化损失(用于训练)
+        """
         quant, diff, _ = self.encode(input)
         dec = self.decode(quant)
         return dec, diff
 
     def get_input(self, batch, k):
-
+        """
+        提取并预处理输入数据
+        
+        处理:
+        1. 提取指定key的数据
+        2. 调整维度: (B, H, W, C) → (B, C, H, W)
+        
+        触觉数据示例:
+        输入: (32, 128, 160, 3)
+        输出: (32, 3, 128, 160)
+        """
         x = batch[k]
         if len(x.shape) == 3:
             x = x[..., None]
+        # HWC → CHW格式转换
         x = x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format)
         return x.float()
 
     def training_step(self, batch, batch_idx, optimizer_idx):
+        """
+        训练步骤 - 使用双优化器策略
+        
+        optimizer_idx=0: 训练自编码器(encoder + decoder + quantizer)
+        optimizer_idx=1: 训练判别器(GAN)
+        
+        为什么需要判别器?
+        - MSE损失会导致模糊重建
+        - 判别器强制生成更真实的细节
+        - 特别适合触觉图像的纹理
+        """
         x = self.get_input(batch, self.image_key)
         xrec, qloss = self(x)
 
         if optimizer_idx == 0:
             # autoencode
+            # 自编码器损失 = 重建损失 + 感知损失 + 量化损失
             aeloss, log_dict_ae = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
                                             last_layer=self.get_last_layer(), split="train")
 
@@ -103,6 +231,7 @@ class VQModel(pl.LightningModule):
 
         if optimizer_idx == 1:
             # discriminator
+            # 判别器损失: 区分真实图像和重建图像
             discloss, log_dict_disc = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
                                             last_layer=self.get_last_layer(), split="train")
             self.log("train/discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
@@ -110,6 +239,7 @@ class VQModel(pl.LightningModule):
             return discloss
 
     def validation_step(self, batch, batch_idx):
+        """验证步骤: 评估重建质量"""
         x = self.get_input(batch, self.image_key)
         xrec, qloss = self(x)
         aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
@@ -127,6 +257,14 @@ class VQModel(pl.LightningModule):
         return self.log_dict
 
     def configure_optimizers(self):
+        """
+        配置双优化器
+        
+        opt_ae: 优化编码器、解码器、量化器
+        opt_disc: 优化判别器
+        
+        betas=(0.5, 0.9): GAN训练常用设置
+        """
         lr = self.learning_rate
         opt_ae = torch.optim.Adam(list(self.encoder.parameters())+
                                   list(self.decoder.parameters())+
@@ -139,9 +277,14 @@ class VQModel(pl.LightningModule):
         return [opt_ae, opt_disc], []
 
     def get_last_layer(self):
+        """
+        获取decoder最后一层权重
+        用于自适应权重调整
+        """
         return self.decoder.conv_out.weight
 
     def log_images(self, batch, **kwargs):
+        """记录图像用于可视化"""
         log = dict()
         x = self.get_input(batch, self.image_key)
         x = x.to(self.device)
@@ -156,6 +299,7 @@ class VQModel(pl.LightningModule):
         return log
 
     def to_rgb(self, x):
+        """将多通道图像转为RGB用于可视化"""
         assert self.image_key == "segmentation"
         if not hasattr(self, "colorize"):
             self.register_buffer("colorize", torch.randn(3, x.shape[1], 1, 1).to(x))
@@ -165,6 +309,7 @@ class VQModel(pl.LightningModule):
 
 
 class VQSegmentationModel(VQModel):
+    """用于分割任务的VQ-VAE变体"""
     def __init__(self, n_labels, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.register_buffer("colorize", torch.randn(3, n_labels, 1, 1))
@@ -217,6 +362,7 @@ class VQSegmentationModel(VQModel):
 
 
 class VQNoDiscModel(VQModel):
+    """不使用判别器的VQ-VAE(仅自编码器)"""
     def __init__(self,
                  ddconfig,
                  lossconfig,
@@ -267,6 +413,10 @@ class VQNoDiscModel(VQModel):
 
 
 class GumbelVQ(VQModel):
+    """
+    使用Gumbel-Softmax的VQ-VAE变体
+    优点: 可微分的离散化，训练更稳定
+    """
     def __init__(self,
                  ddconfig,
                  lossconfig,
@@ -308,6 +458,7 @@ class GumbelVQ(VQModel):
             self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
 
     def temperature_scheduling(self):
+        """温度退火: 训练过程中逐渐降低温度"""
         self.quantize.temperature = self.temperature_scheduler(self.global_step)
 
     def encode_to_prequant(self, x):
@@ -371,6 +522,10 @@ class GumbelVQ(VQModel):
         return log
 
 class EMAVQ(VQModel):
+    """
+    使用EMA(指数移动平均)更新codebook的VQ-VAE
+    优点: 更稳定的codebook学习，避免collapse
+    """
     def __init__(self,
                  ddconfig,
                  lossconfig,
@@ -400,7 +555,7 @@ class EMAVQ(VQModel):
                                            remap=remap)
     def configure_optimizers(self):
         lr = self.learning_rate
-        #Remove self.quantize from parameter list since it is updated via EMA
+        # 注意: quantizer不在优化器中(通过EMA更新)
         opt_ae = torch.optim.Adam(list(self.encoder.parameters())+
                                   list(self.decoder.parameters())+
                                   list(self.quant_conv.parameters())+
@@ -413,6 +568,10 @@ class EMAVQ(VQModel):
 
 
 class WOVQModel(pl.LightningModule):
+    """
+    不使用向量量化的自编码器(作为baseline)
+    用于对比实验: 验证VQ的作用
+    """
     def __init__(self,
                  ddconfig,
                  lossconfig,
@@ -456,14 +615,17 @@ class WOVQModel(pl.LightningModule):
         print(f"Restored from {path}")
 
     def encode(self, x):
+        """直接编码，无量化"""
         h = self.encoder(x)
         return h
     
     def to_latent(self, x):
+        """提取latent(与VQModel接口一致)"""
         h = self.encoder(x)
         return  h
     
     def decode(self, h):
+        """解码"""
         dec = self.decoder(h)
         return dec
 
@@ -473,6 +635,7 @@ class WOVQModel(pl.LightningModule):
         return dec
 
     def forward(self, input):
+        """前向传播: 编码 → 解码(无量化)"""
         latent = self.encode(input)
         dec = self.decode(latent)
         return dec
