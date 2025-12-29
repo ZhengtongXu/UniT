@@ -1,0 +1,166 @@
+# Residual VQ-VAE v3 训练配置 (Extended - 200 epochs)
+# =====================================================
+# 延长训练到 200 epoch,观察后期收敛情况
+#
+# 核心改进:
+# 1. Prophet降低表达能力 (resnet18, 不使用state)
+# 2. z_exp_dropout强制VQ路径学习
+# 3. 课程学习控制dropout逐渐消失
+# 4. 延长训练时间,让VQ loss充分收敛
+
+_target_: UniT.workspace.train_residual_vqvae_workspace.TrainResidualVqvaeWorkspace
+
+defaults:
+  - _self_
+
+# ====================
+# 训练参数
+# ====================
+name: residual_vqvae_v3_extended_200ep
+seed: 42
+base_learning_rate: 4.5e-6
+batch_size: 16  # 必须与v3保持一致，确保前100个epoch完全复现
+max_epochs: 200  # 100 → 200 (延长100个epoch)
+gpus: "1"  # 必须与v3保持一致(GPU 1)
+
+# ====================
+# 模型配置
+# ====================
+model:
+  # Prophet编码器配置 (改进: 降低表达能力)
+  prophet_config:
+    visual_backbone: resnet18    # resnet34 → resnet18 (参数量减半)
+    visual_pretrained: true
+    state_dim: 8
+    use_state: false             # 新增: 不使用state, 避免过拟合
+    latent_shape: [3, 20, 16]
+    hidden_dims: [256, 128, 64]  # [512,256,128] → [256,128,64] (容量减小)
+
+  # 稀疏Loss权重
+  lambda_sparse: 0.01
+
+  # z_exp Dropout配置 (新增: 强制VQ路径学习)
+  z_exp_dropout: 0.3  # 初始值, 会被课程学习动态调整
+
+  # Residual VQ Configuration
+  residual_vq_config:
+    n_e: 512              # 保持512
+    e_dim: 3
+    beta: 0.25
+    legacy: false
+
+  # 可选: 从预训练VQModel加载权重
+  vq_model_ckpt: null
+  freeze_obs_encoder: false
+
+  # Encoder/Decoder配置 (与VQModel保持一致)
+  ddconfig:
+    double_z: false
+    z_channels: 3
+    resolution: 160
+    in_channels: 3
+    out_ch: 3
+    ch: 128
+    ch_mult: [1, 1, 2, 4]
+    num_res_blocks: 2
+    attn_resolutions: [16]
+    dropout: 0.0
+
+  # 损失函数配置
+  lossconfig:
+    target: UniT.taming.modules.losses.vqperceptual.VQLPIPSWithDiscriminator
+    params:
+      disc_conditional: false
+      disc_in_channels: 3
+      disc_start: 10000
+      disc_weight: 0.8
+      codebook_weight: 0.0
+      pixelloss_weight: 1.0
+      perceptual_weight: 1.0
+
+# ====================
+# 数据集配置
+# ====================
+dataset:
+  dataset_path: data/residual_tactile_train_v2
+  visual_size: [224, 224]
+  tactile_size: [128, 160]
+  normalize_robot_state: true
+  val_ratio: 0.1
+  seed: ${seed}
+
+# ====================
+# DataLoader配置
+# ====================
+dataloader:
+  batch_size: ${batch_size}
+  num_workers: 8
+  persistent_workers: false  # 修复: persistent_workers=true会导致zarr数据集在长训练中重复batch
+  pin_memory: true
+  shuffle: true
+
+val_dataloader:
+  batch_size: ${batch_size}
+  num_workers: 4
+  persistent_workers: false  # 修复: persistent_workers=true会导致zarr数据集在长训练中重复batch
+  pin_memory: true
+  shuffle: false
+
+# ====================
+# Curriculum Learning Configuration (延长版本 - 与v3完全一致!)
+# ====================
+curriculum_learning:
+  enabled: true
+  phases:
+    # Phase 1 (0-30): 强Aux + 强Dropout (强制VQ学习)
+    - end_epoch: 30
+      aux_loss_weight: 1.0
+      z_exp_dropout: 0.5  # 50% dropout, 强制使用VQ路径
+      name: 'force_vq_learning'
+
+    # Phase 2 (30-50): 渐进降低Aux + 中等Dropout
+    - end_epoch: 50
+      aux_loss_weight: 0.5
+      z_exp_dropout: 0.3  # 降低到30%
+      name: 'gradual_transition'
+
+    # Phase 3 (50-70): 弱Aux + 小Dropout
+    - end_epoch: 70
+      aux_loss_weight: 0.2
+      z_exp_dropout: 0.1  # 降低到10%
+      name: 'fine_tuning'
+
+    # Phase 4 (70-200): 最小Aux + 无Dropout (让Base和VQ协作) - 延长到200!
+    - end_epoch: 200
+      aux_loss_weight: 0.1
+      z_exp_dropout: 0.0  # 移除dropout
+      name: 'final_polish'
+
+# ====================
+# Validation & Logging Configuration
+# ====================
+validation:
+  val_check_interval: 3
+  image_log_interval: 3
+  checkpoint_save_interval: 10  # 每10个epoch保存checkpoint
+  keep_last_n_checkpoints: 5     # 保留5个最新的checkpoint
+
+# ====================
+# Trainer配置
+# ====================
+trainer:
+  name: ${name}
+  project: residual_tactile
+  train: true
+  no_test: false
+  postfix: ""
+  save_every: 10
+  resume: ""
+  resume_from_checkpoint: null
+  debug: false
+
+# ====================
+# 其他
+# ====================
+with_vq: false
+datatype: 'residual'

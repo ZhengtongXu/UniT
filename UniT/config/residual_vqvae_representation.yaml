@@ -1,0 +1,149 @@
+# Residual VQ-VAE 训练配置
+# =====================================
+# 用于训练Residual Tactile Representation Learning模型
+#
+# 使用:
+#   python UniT/workspace/train_residual_vqvae_workspace.py
+
+_target_: UniT.workspace.train_residual_vqvae_workspace.TrainResidualVqvaeWorkspace
+
+defaults:
+  - _self_
+
+# ====================
+# 训练参数
+# ====================
+name: residual_vqvae_v2_fixed
+seed: 42
+base_learning_rate: 4.5e-6
+batch_size: 16
+max_epochs: 100
+gpus: "1"
+
+# ====================
+# 模型配置
+# ====================
+model:
+  # Prophet编码器配置
+  prophet_config:
+    visual_backbone: resnet34    # resnet34/resnet18
+    visual_pretrained: true      # 使用ImageNet预训练
+    state_dim: 8                 # 机器人状态维度 (7-DOF joints + gripper)
+    latent_shape: [3, 20, 16]   # 对应160x128触觉图像 (8x下采样→20x16)
+    hidden_dims: [512, 256, 128] # [state_proj, state_hidden, fusion_hidden]
+
+  # 稀疏Loss权重 (关键超参数)
+  # 增大到0.01以提供更强的梯度信号给Prophet
+  lambda_sparse: 0.01
+
+  # Residual VQ Configuration (新增)
+  residual_vq_config:
+    n_e: 512              # 512个残差原语 (比完整图像的1024小，但比256更有表达力)
+    e_dim: 3              # 必须等于 z_channels
+    beta: 0.25            # Commitment Loss weight
+    legacy: false
+
+  # 可选: 从预训练VQModel加载权重
+  vq_model_ckpt: null  # 'representation_models/xxx/checkpoints/last.ckpt'
+  freeze_obs_encoder: false  # 是否冻结Observation Stream
+
+  # Encoder/Decoder配置 (与VQModel保持一致)
+  ddconfig:
+    double_z: false
+    z_channels: 3
+    resolution: 160             # 触觉图像高度 (160x128)
+    in_channels: 3
+    out_ch: 3
+    ch: 128
+    ch_mult: [1, 1, 2, 4]       # 通道倍数: 128 → 128 → 256 → 512
+    num_res_blocks: 2           # 每层ResBlock数量
+    attn_resolutions: [16]      # 在20×16分辨率使用Attention
+    dropout: 0.0
+
+  # 损失函数配置
+  lossconfig:
+    target: UniT.taming.modules.losses.vqperceptual.VQLPIPSWithDiscriminator
+    params:
+      disc_conditional: false
+      disc_in_channels: 3
+      disc_start: 10000       # 10k步后启用GAN loss
+      disc_weight: 0.8        # 判别器loss权重
+      codebook_weight: 0.0    # 不使用VQ (设为0)
+      pixelloss_weight: 1.0   # L1重建loss权重
+      perceptual_weight: 1.0  # LPIPS感知loss权重
+
+# ====================
+# 数据集配置
+# ====================
+dataset:
+  dataset_path: data/residual_tactile_train_v2  # Updated to v2 dataset
+  visual_size: [224, 224]      # ResNet输入尺寸
+  tactile_size: [128, 160]     # 触觉图像尺寸
+  normalize_robot_state: true  # 归一化机器人状态
+  val_ratio: 0.1               # 验证集比例
+  seed: ${seed}
+
+# ====================
+# DataLoader配置
+# ====================
+dataloader:
+  batch_size: ${batch_size}
+  num_workers: 8
+  persistent_workers: false  # 修复: persistent_workers=true会导致zarr数据集在长训练中重复batch
+  pin_memory: true
+  shuffle: true
+
+val_dataloader:
+  batch_size: ${batch_size}
+  num_workers: 4
+  persistent_workers: false  # 修复: persistent_workers=true会导致zarr数据集在长训练中重复batch
+  pin_memory: true
+  shuffle: false
+
+# ====================
+# Curriculum Learning Configuration
+# ====================
+curriculum_learning:
+  enabled: true   # 启用课程学习
+  phases:
+    - end_epoch: 30
+      aux_loss_weight: 1.0  # Phase 1: 强Aux监督，确保obs_encoder学到完美表征
+      name: 'teacher_forcing'
+    - end_epoch: 50
+      aux_loss_weight: 0.5  # Phase 2: 渐进式降低Aux，让Decoder适应VQ
+      name: 'gradual_adaptation'
+    - end_epoch: 70
+      aux_loss_weight: 0.2  # Phase 3: 进一步降低，强化Hybrid路径
+      name: 'hybrid_strengthening'
+    - end_epoch: 100
+      aux_loss_weight: 0.1  # Phase 4: 最终微调
+      name: 'final_polish'
+
+# ====================
+# Validation & Logging Configuration
+# ====================
+validation:
+  val_check_interval: 3          # Validate every N epochs (3 epochs default)
+  image_log_interval: 3          # Log images every N epochs (same as validation)
+  checkpoint_save_interval: 5      # Save checkpoint every N epochs
+  keep_last_n_checkpoints: 3       # Number of checkpoints to keep
+
+# ====================
+# Trainer配置
+# ====================
+trainer:
+  name: ${name}
+  project: residual_tactile    # wandb项目名
+  train: true
+  no_test: false
+  postfix: ""
+  save_every: 5                # 每N个epoch保存checkpoint
+  resume: ""                   # checkpoint路径 (恢复训练)
+  resume_from_checkpoint: null # Pytorch Lightning的官方恢复参数
+  debug: false
+
+# ====================
+# 其他
+# ====================
+with_vq: false  # 不使用VQ
+datatype: 'residual'  # 数据类型标识

@@ -1,0 +1,38 @@
+{
+  "timestamp": "2025-12-23T15:14:53.577054",
+  "total_scripts": 4,
+  "passed": 3,
+  "failed": 1,
+  "total_time_seconds": 76.51757001876831,
+  "results": [
+    {
+      "name": "debug_data_pipeline.py",
+      "description": "\u6570\u636e\u6d41\u9a8c\u8bc1 (Dataset, DataLoader, \u5f52\u4e00\u5316)",
+      "report_path": "debug_outputs/data_pipeline_report.json",
+      "success": true,
+      "elapsed": 15.856381893157959
+    },
+    {
+      "name": "debug_model_forward.py",
+      "description": "\u6a21\u578b\u524d\u5411\u4f20\u64ad\u9a8c\u8bc1 (Prophet, Obs, Residual, Decoder)",
+      "report_path": "debug_outputs/model_forward_report.json",
+      "success": true,
+      "elapsed": 35.40361428260803
+    },
+    {
+      "name": "debug_loss_and_gradients.py",
+      "description": "Loss\u548c\u68af\u5ea6\u9a8c\u8bc1 (Recon, Sparse, \u68af\u5ea6\u6d41)",
+      "report_path": "debug_outputs/loss_and_gradients_report.json",
+      "success": false,
+      "elapsed": 11.812574863433838
+    },
+    {
+      "name": "debug_training_dynamics.py",
+      "description": "\u8bad\u7ec3\u52a8\u6001\u9a8c\u8bc1 (\u53c2\u6570\u66f4\u65b0, Loss\u8d8b\u52bf, Checkpoint)",
+      "report_path": "debug_outputs/training_dynamics_report.json",
+      "success": true,
+      "elapsed": 13.444998979568481
+    }
+  ],
+  "all_issues_count": 0
+}

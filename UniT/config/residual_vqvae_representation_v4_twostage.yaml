@@ -1,0 +1,196 @@
+# Residual VQ-VAE v4 训练配置
+# =====================================
+# 两阶段训练策略
+#
+# 核心思想:
+# Stage 1 (0-50): 专注训练Obs Encoder - 仅用Aux Loss + Sparse Loss
+#                 目标: 让z_real达到最佳重建质量, Prophet学习预测
+# Stage 2 (50-150): 冻结Obs Encoder - 仅用Hybrid Loss + 弱Sparse Loss
+#                   目标: 让Decoder适应VQ路径重建, Sparse约束Prophet不偏离
+#
+_target_: UniT.workspace.train_residual_vqvae_workspace.TrainResidualVqvaeWorkspace
+
+defaults:
+  - _self_
+
+# ====================
+# 训练参数
+# ====================
+name: residual_vqvae_v4_twostage
+seed: 42
+base_learning_rate: 4.5e-6
+batch_size: 12  # GPU 0上有残留进程占用显存，减小batch size
+max_epochs: 150  # v3: 100 → v4: 150 (两阶段需要更长时间)
+gpus: "0"  # 使用GPU 0训练
+
+# ====================
+# 模型配置
+# ====================
+model:
+  # Prophet编码器配置
+  prophet_config:
+    visual_backbone: resnet18
+    visual_pretrained: true
+    state_dim: 8
+    use_state: false
+    latent_shape: [3, 20, 16]
+    hidden_dims: [256, 128, 64]
+
+  # 稀疏Loss权重 (会被课程学习动态调整)
+  lambda_sparse: 0.01  # Stage 1初始值
+
+  # z_exp Dropout配置
+  z_exp_dropout: 0.0  # v4: 不使用dropout (两阶段策略更清晰)
+
+  # Residual VQ Configuration
+  residual_vq_config:
+    n_e: 512
+    e_dim: 3
+    beta: 0.25
+    legacy: false
+
+  # 可选: 从预训练VQModel加载权重
+  vq_model_ckpt: null
+  freeze_obs_encoder: false  # Stage 1不冻结, Stage 2会冻结
+
+  # Encoder/Decoder配置
+  ddconfig:
+    double_z: false
+    z_channels: 3
+    resolution: 160
+    in_channels: 3
+    out_ch: 3
+    ch: 128
+    ch_mult: [1, 1, 2, 4]
+    num_res_blocks: 2
+    attn_resolutions: [16]
+    dropout: 0.0
+
+  # 损失函数配置
+  lossconfig:
+    target: UniT.taming.modules.losses.vqperceptual.VQLPIPSWithDiscriminator
+    params:
+      disc_conditional: false
+      disc_in_channels: 3
+      disc_start: 10000
+      disc_weight: 0.8
+      codebook_weight: 0.0
+      pixelloss_weight: 1.0
+      perceptual_weight: 1.0
+
+# ====================
+# 数据集配置
+# ====================
+dataset:
+  dataset_path: data/residual_tactile_train_v2
+  visual_size: [224, 224]
+  tactile_size: [128, 160]
+  normalize_robot_state: true
+  val_ratio: 0.1
+  seed: ${seed}
+
+# ====================
+# DataLoader配置
+# ====================
+dataloader:
+  batch_size: ${batch_size}
+  num_workers: 8
+  persistent_workers: false  # 修复: persistent_workers=true会导致zarr数据集在长训练中重复batch
+  pin_memory: true
+  shuffle: true
+
+val_dataloader:
+  batch_size: ${batch_size}
+  num_workers: 4
+  persistent_workers: false  # 修复: persistent_workers=true会导致zarr数据集在长训练中重复batch
+  pin_memory: true
+  shuffle: false
+
+# ====================
+# Curriculum Learning Configuration (v4 Two-Stage)
+# ====================
+curriculum_learning:
+  enabled: true
+  phases:
+    # ========================================
+    # STAGE 1: 训练Observation Encoder
+    # ========================================
+    # 目标: 让 z_real 达到最佳重建质量
+    # 策略: Aux Loss (z_real重建) + Sparse Loss (Prophet学习预测)
+    # 关键: 不使用Hybrid Loss, 让Decoder专注学习z_real
+
+    # Phase 1.1 (0-25): Warm-up - 强Aux, 强Sparse
+    - end_epoch: 25
+      aux_loss_weight: 1.0       # 全力训练z_real重建
+      hybrid_loss_weight: 0.0    # 不使用Hybrid路径
+      lambda_sparse: 0.01        # 强稀疏约束, 让Prophet学习
+      freeze_obs_encoder: false  # Obs Encoder可训练
+      name: 'stage1_warmup'
+
+    # Phase 1.2 (25-50): Convergence - 强Aux, 中Sparse
+    - end_epoch: 50
+      aux_loss_weight: 1.0       # 继续强化z_real质量
+      hybrid_loss_weight: 0.0    # 仍不使用Hybrid
+      lambda_sparse: 0.005       # 降低稀疏约束 (Prophet已初步学会)
+      freeze_obs_encoder: false  # Obs Encoder可训练
+      name: 'stage1_convergence'
+
+    # ========================================
+    # STAGE 2: 训练VQ Decoder重建
+    # ========================================
+    # 目标: 让 Hybrid (z_exp + VQ) 重建达到 Stage 1 的 Aux 水平
+    # 策略: Hybrid Loss (主导) + 弱Sparse Loss (正则)
+    # 关键: 冻结Obs Encoder, Aux Loss置零, Decoder聚焦VQ路径
+
+    # Phase 2.1 (50-80): Adaptation - Decoder适应VQ
+    - end_epoch: 80
+      aux_loss_weight: 0.0       # 🔥 完全放弃Aux Loss
+      hybrid_loss_weight: 1.0    # Hybrid Loss主导
+      lambda_sparse: 0.002       # 弱稀疏约束 (仅防止Prophet偏移)
+      freeze_obs_encoder: true   # 🔥 冻结Obs Encoder
+      name: 'stage2_adaptation'
+
+    # Phase 2.2 (80-120): Fine-tuning - 精调VQ重建
+    - end_epoch: 120
+      aux_loss_weight: 0.0       # Aux Loss保持为0
+      hybrid_loss_weight: 1.0    # Hybrid Loss主导
+      lambda_sparse: 0.001       # 进一步降低稀疏约束
+      freeze_obs_encoder: true   # Obs Encoder冻结
+      name: 'stage2_finetuning'
+
+    # Phase 2.3 (120-150): Polish - 最终打磨
+    - end_epoch: 150
+      aux_loss_weight: 0.0       # Aux Loss保持为0
+      hybrid_loss_weight: 1.0    # Hybrid Loss主导
+      lambda_sparse: 0.0005      # 最小稀疏约束
+      freeze_obs_encoder: true   # Obs Encoder冻结
+      name: 'stage2_polish'
+
+# ====================
+# Validation & Logging Configuration
+# ====================
+validation:
+  val_check_interval: 5
+  image_log_interval: 5
+  checkpoint_save_interval: 10  # v4: 每10个epoch保存 (训练更长)
+  keep_last_n_checkpoints: 5     # 保留更多checkpoint
+
+# ====================
+# Trainer配置
+# ====================
+trainer:
+  name: ${name}
+  project: residual_tactile
+  train: true
+  no_test: false
+  postfix: ""
+  save_every: 10  # v4: 每10个epoch保存
+  resume: ""
+  resume_from_checkpoint: null
+  debug: false
+
+# ====================
+# 其他
+# ====================
+with_vq: false
+datatype: 'residual'

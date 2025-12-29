@@ -1,26 +1,12 @@
 """
-AlignTac: 基于VQ-VAE的几何-动力学解耦触觉表征
+AlignTac: Memory-Augmented Tactile Representation Learning
 
-模块:
-- AlignTacVQVAE: 双流解耦VQ-VAE主模型
-- AlignTacLoss: 多任务损失函数
-- FlowLoss: 光流预测损失
+This module implements the AlignTac architecture for learning disentangled
+geometric and dynamic tactile representations with memory augmentation.
 """
 
-from .aligntac_vqvae import AlignTacVQVAE
-from .losses import (
-    AlignTacLoss,
-    FlowLoss,
-    PhaseClassificationLoss,
-    EPE,
-    compute_codebook_usage,
-)
+from .memory_module import MemoryModule
+from .mdmap_decoder import MDMapDecoder
+from .memory_vqvae import MemoryVQVAE
 
-__all__ = [
-    'AlignTacVQVAE',
-    'AlignTacLoss',
-    'FlowLoss',
-    'PhaseClassificationLoss',
-    'EPE',
-    'compute_codebook_usage',
-]
+__all__ = ['MemoryModule', 'MDMapDecoder', 'MemoryVQVAE']

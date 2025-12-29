@@ -1,0 +1,124 @@
+# Memory-Augmented VQ-VAE Training Configuration
+# For AlignTac: Dual-stream architecture with Memory Module
+
+_target_: UniT.workspace.train_memory_vqvae_workspace.TrainMemoryVqvaeWorkspace
+
+# Learning rate (Optimized: reduced from 4.5e-6 to prevent MD-Map loss explosion)
+base_learning_rate: 1.0e-6
+
+# Shape metadata
+shape_meta: &shape_meta
+  obs:
+    tactile_image:
+      shape: [3, 240, 320]  # Original tactile image size
+      type: rgb
+    md_map:
+      shape: [3, 240, 320]  # MD-Map GT size
+      type: float
+
+# Model configuration
+with_vq: true
+
+model:
+  # Embedding dimensions for dual branches
+  geo_embed_dim: 3      # Geometry branch embedding dimension
+  dyn_embed_dim: 3      # Dynamics branch embedding dimension
+  n_embed: 1024         # Codebook size (shared for both branches)
+  
+  # Memory module configuration
+  memory_K: 5           # History window size (number of frames)
+  memory_num_heads: 1   # Number of attention heads in Memory Module
+  
+  # Loss weights for dual objectives (Optimized: reduced mdmap weight for stability)
+  lambda_rgb: 1.0       # Weight for RGB reconstruction loss
+  lambda_mdmap: 0.3     # Weight for MD-Map prediction loss (reduced from 1.0)
+  
+  # Encoder/Decoder configuration
+  ddconfig:
+    double_z: False
+    z_channels: 3       # Latent space channels (shared encoder output)
+    resolution: 128     # Input resolution (will be resized to 128x160)
+    in_channels: 3      # RGB input
+    out_ch: 3           # RGB output (for RGB decoder)
+    ch: 128             # Base channel count
+    ch_mult: [1,1,2,4]  # Channel multipliers (latent shape: 16x20 for 128x160 input)
+    num_res_blocks: 2   # Number of residual blocks per level
+    attn_resolutions: [16]  # Resolutions where attention is applied
+    dropout: 0.0
+  
+  # Loss configuration
+  lossconfig:
+    target: UniT.taming.modules.losses.vqperceptual.VQLPIPSWithDiscriminator
+    params:
+      disc_conditional: False
+      disc_in_channels: 3  # RGB channels for discriminator
+      disc_start: 10000    # Start discriminator after 10k steps
+      disc_weight: 0.8     # Discriminator loss weight
+      codebook_weight: 1.0 # VQ codebook loss weight
+
+# Dataset configuration
+dataset:
+  data_root: data                                                     # Path to replay_buffer.zarr (relative to UniT-Align/)
+  mdmap_root: /mlp_vepfs/share/zpw/tac/script/data/mdmap_gt          # Path to MD-Map GT (all 50 episodes)
+
+  image_size: [128, 160]  # Resize tactile images to (H, W) - maintains 3:4 aspect ratio
+  mdmap_size: [240, 320]  # MD-Map GT resolution (H, W) - original sensor resolution
+  resized_mdmap_shape: [128, 160]  # Resize MD-Map to this shape during loading (H, W)
+
+  val_ratio: 0.1        # Validation split ratio
+  augment: true         # Apply data augmentation
+  normalize_image: true # Normalize images to [-1, 1]
+
+# Dataloaders
+val_dataloader:
+  batch_size: 8
+  num_workers: 4
+  persistent_workers: false
+  pin_memory: true
+  shuffle: false
+
+dataloader:
+  batch_size: 8
+  num_workers: 4
+  persistent_workers: false
+  pin_memory: true
+  shuffle: true
+
+# Training configuration
+gpus: '0,'
+batch_size: 8  # Reduced from 16 to avoid OOM with dual-decoder architecture
+seed: 42
+
+trainer:
+  name: "memory_vqvae_aligntac"
+  resume: ""
+  base: []
+  no_test: false
+  project: "aligntac"  # Wandb project name
+  debug: false
+  seed: 42
+  postfix: ""
+  train: true
+
+# Checkpointing
+save_every: 5          # Save checkpoint every N epochs
+max_epochs: 100        # Maximum training epochs
+
+# Logging
+log_every_n_steps: 50
+val_check_interval: 100  # Validate every N training steps (~396 batches/epoch with batch_size=8)
+
+# Wandb configuration
+wandb:
+  enabled: true                           # Enable wandb logging
+  project: "aligntac_memory_vqvae"       # Wandb project name
+  image_log_interval: 100                # Log images every N training steps
+
+# Optimization (Optimized: tighter gradient clipping to prevent explosion)
+gradient_clip_val: 0.5
+
+# Early stopping (optional)
+# early_stopping:
+#   monitor: "val/total_loss"
+#   patience: 10
+#   mode: "min"
