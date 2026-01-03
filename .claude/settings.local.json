@@ -1,0 +1,40 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3:*)",
+      "Bash(python analyze_training.py:*)",
+      "Bash(cat:*)",
+      "Bash(chmod:*)",
+      "Bash(python train.py:*)",
+      "Bash(nvidia-smi:*)",
+      "Bash(tmux:*)",
+      "Bash(bash:*)",
+      "Bash(grep:*)",
+      "Bash(echo:*)",
+      "Bash(ls:*)",
+      "Bash(sha256sum:*)",
+      "Bash(sort:*)",
+      "Bash(python debug_dataloader.py:*)",
+      "Bash(python:*)",
+      "Bash(GPU_ID=0 bash:*)",
+      "Bash(ps:*)",
+      "Bash(fuser:*)",
+      "Bash(PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True GPU_ID=0 bash:*)",
+      "Bash(PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True GPU_ID=0 BATCH_SIZE=12 bash:*)",
+      "Bash(find:*)",
+      "Bash(conda list:*)",
+      "Bash(source:*)",
+      "Bash(conda activate:*)",
+      "Bash(pip install:*)",
+      "Bash(ffprobe:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat\\(residual-vqvae\\): 保存当前Residual VQ-VAE v4两阶段训练架构\n\n本次提交保存了当前在aligntac分支上的Residual VQ-VAE工作，为后续升级为概率性架构做准备。\n\n主要特性:\n- Prophet Stream: \\(Visual + Robot_State\\) → z_exp \\(确定性预测\\)\n- Observation Stream: Tactile_Image → z_real\n- Residual: r = z_real.detach\\(\\) - z_exp \\(确定性残差\\)\n- VQ Quantization: VQ\\(r\\) → quantized_residual\n- Hybrid Decoder: Decoder\\(z_exp + quantized_residual\\) → T_recon\n- Two-Stage Training: Stage 1训练Obs Encoder, Stage 2冻结Obs训练VQ路径\n\n下一步将在新分支实现概率性升级:\n- Prophet输出高斯分布参数 \\(μ, log σ²\\)\n- 基于精度加权的残差 \\(Z-score归一化\\)\n- Gaussian NLL Loss用于不确定性学习\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git checkout:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat\\(probabilistic\\): 实现概率性Residual VQ-VAE架构\n\n本次提交实现了从确定性架构到概率性架构的完整升级。\n\n核心创新 - 基于精度加权的残差 \\(Precision-Weighted Residuals\\):\n\n1. **Prophet输出高斯分布**:\n   - 原版: z_exp = Prophet\\(visual, state\\)  [确定性]\n   - 新版: \\(μ, log σ²\\) = Prophet\\(visual, state\\)  [概率性]\n\n2. **Z-score归一化残差**:\n   - 原版: r = z_real - z_exp  [简单相减]\n   - 新版: r_norm = \\(z_real - μ\\) / σ  [自适应归一化]\n\n3. **VQ量化标准差倍数**:\n   - Codebook学习的是\"标准差倍数\"\\(1σ, 3σ\\)而非绝对残差\n   - 在高噪声区域\\(摩擦\\), σ增大, 残差被压缩\n   - 在低噪声区域\\(碰撞\\), σ较小, 残差被放大\n\n4. **反归一化解码**:\n   - 原版: Decoder\\(z_exp + VQ\\(r\\)\\)\n   - 新版: Decoder\\(μ + VQ\\(r_norm\\) × σ\\)\n\n5. **Gaussian NLL Loss**:\n   - 驱动网络学习何时应该不确定\n   - 替代原有的Sparse Loss\n\n物理含义:\n- 摩擦区域: σ大 → 噪声被抑制\n- 碰撞区域: σ小 → 信号被放大\n- 自适应传感器噪声处理\n\n新增文件:\n- UniT/taming/models/probabilistic_residual_vqmodel.py \\(概率性模型\\)\n- UniT/workspace/train_probabilistic_residual_workspace.py \\(训练workspace\\)\n- UniT/config/probabilistic_residual_vqvae.yaml \\(配置文件\\)\n- launch_probabilistic_training.sh \\(启动脚本\\)\n- launch_probabilistic_training_tmux.sh \\(tmux启动脚本\\)\n- PROBABILISTIC_RESIDUAL_VAE_GUIDE.md \\(详细文档\\)\n\n课程学习策略:\n- Stage 1 \\(0-50\\): 训练Obs Encoder + Prophet不确定性学习\n- Stage 2 \\(50-150\\): 冻结Obs, 训练VQ路径重建\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit:*)",
+      "Bash(conda info:*)",
+      "Bash(timeout 30 python:*)",
+      "Bash(export CUDA_VISIBLE_DEVICES=1:*)"
+    ]
+  }
+}

@@ -485,6 +485,124 @@ class DynamicFiLMDecoder(nn.Module):
         return recon_video
 
 
+class TimeDistributedObsEncoder(nn.Module):
+    """
+    TimeDistributed Observation Encoder
+
+    将预训练的2D VAE Encoder应用到视频的每一帧，
+    然后将spatial latent投影到temporal latent
+
+    Input: (B, 3, T, H, W)
+    Output: (B, T, latent_dim)
+    """
+
+    def __init__(self,
+                 pretrained_ckpt: Optional[str] = None,
+                 latent_dim: int = 256,
+                 spatial_size: tuple = (16, 20),
+                 z_channels: int = 3):
+        super().__init__()
+
+        self.latent_dim = latent_dim
+        self.spatial_size = spatial_size
+        self.z_channels = z_channels
+
+        # 1. 2D Encoder (从预训练加载或随机初始化)
+        from UniT.taming.modules.diffusionmodules.model import Encoder
+
+        # 简化的encoder配置 (匹配residual_vqmodel)
+        encoder_config = {
+            'ch': 128,
+            'out_ch': 3,
+            'ch_mult': [1, 1, 2, 4],
+            'num_res_blocks': 2,
+            'attn_resolutions': [16],
+            'dropout': 0.0,
+            'resamp_with_conv': True,
+            'in_channels': 3,
+            'resolution': 160,
+            'z_channels': z_channels,
+            'double_z': False
+        }
+
+        self.encoder_2d = Encoder(**encoder_config)
+        self.quant_conv = nn.Conv2d(z_channels, z_channels, kernel_size=1)
+
+        # 2. 从checkpoint加载权重 (如果提供)
+        if pretrained_ckpt is not None and pretrained_ckpt != "":
+            self._load_pretrained(pretrained_ckpt)
+        else:
+            print("⚠️  Warning: 未加载预训练权重，将从头训练Observation Encoder")
+
+        # 3. TimeDistributed包装
+        self.td_encoder = TimeDistributed(self.encoder_2d)
+        self.td_quant_conv = TimeDistributed(self.quant_conv)
+
+        # 4. Spatial → Temporal projection
+        # (B, z_channels, T, H, W) → (B, T, latent_dim)
+        H, W = spatial_size
+        self.spatial_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.to_temporal = nn.Linear(z_channels, latent_dim)
+
+    def _load_pretrained(self, ckpt_path: str):
+        """从预训练checkpoint加载encoder权重"""
+        try:
+            print(f"从预训练模型加载Observation Encoder: {ckpt_path}")
+            checkpoint = torch.load(ckpt_path, map_location='cpu')
+
+            # 提取encoder权重
+            if 'state_dict' in checkpoint:
+                state_dict = checkpoint['state_dict']
+            else:
+                state_dict = checkpoint
+
+            # 加载obs_encoder
+            encoder_sd = {k.replace('obs_encoder.', ''): v
+                         for k, v in state_dict.items() if 'obs_encoder' in k}
+            if encoder_sd:
+                missing, unexpected = self.encoder_2d.load_state_dict(encoder_sd, strict=False)
+                print(f"  ✓ Encoder加载: missing={len(missing)}, unexpected={len(unexpected)}")
+
+            # 加载quant_conv
+            quant_sd = {k.replace('quant_conv.', ''): v
+                       for k, v in state_dict.items() if 'quant_conv' in k}
+            if quant_sd:
+                self.quant_conv.load_state_dict(quant_sd, strict=False)
+                print(f"  ✓ Quant_conv加载成功")
+
+            print(f"  ✓ 预训练权重加载完成")
+        except Exception as e:
+            print(f"  ✗ 加载预训练权重失败: {e}")
+            print(f"  → 将从头训练")
+
+    def forward(self, video: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            video: (B, 3, T, H, W)
+        Returns:
+            z_temporal: (B, T, latent_dim)
+        """
+        B, C, T, H, W = video.shape
+
+        # 1. TimeDistributed 2D encoding
+        z_spatial = self.td_encoder(video)  # (B, C_z, T, H', W')
+        z_spatial = self.td_quant_conv(z_spatial)  # (B, z_channels, T, H', W')
+
+        # 2. Spatial pooling: (B, z_channels, T, H', W') → (B, z_channels, T, 1, 1)
+        # Reshape for pooling
+        _, C_z, T, H_z, W_z = z_spatial.shape
+        z_reshaped = z_spatial.permute(0, 2, 1, 3, 4).contiguous()  # (B, T, C_z, H', W')
+        z_reshaped = z_reshaped.view(B * T, C_z, H_z, W_z)  # (B*T, C_z, H', W')
+
+        z_pooled = self.spatial_pool(z_reshaped)  # (B*T, C_z, 1, 1)
+        z_pooled = z_pooled.view(B, T, C_z)  # (B, T, C_z)
+
+        # 3. Temporal projection
+        z_temporal = self.to_temporal(z_pooled)  # (B, T, latent_dim)
+
+        return z_temporal
+
+
 class SpatiotemporalResidualVQModel(pl.LightningModule):
     """
     Spatiotemporal Residual VQ-VAE: "Feeling the Unexpected"
@@ -497,6 +615,7 @@ class SpatiotemporalResidualVQModel(pl.LightningModule):
                  prophet_config: dict,
                  # Observation Encoder配置 (复用2D VAE encoder)
                  obs_encoder_ckpt: Optional[str] = None,
+                 obs_encoder_config: Optional[dict] = None,
                  # Residual Aggregator配置
                  residual_config: Optional[dict] = None,
                  # VQ配置
@@ -505,6 +624,8 @@ class SpatiotemporalResidualVQModel(pl.LightningModule):
                  decoder_config: Optional[dict] = None,
                  # 损失权重
                  lambda_sparse: float = 0.01,
+                 aux_loss_weight: float = 1.0,
+                 hybrid_loss_weight: float = 0.0,
                  # 其他
                  learning_rate: float = 4.5e-6):
         super().__init__()
@@ -512,16 +633,24 @@ class SpatiotemporalResidualVQModel(pl.LightningModule):
         self.save_hyperparameters()
 
         self.lambda_sparse = lambda_sparse
+        self.aux_loss_weight = aux_loss_weight
+        self.hybrid_loss_weight = hybrid_loss_weight
         self.learning_rate = learning_rate
 
         # 1. Prophet Encoder (Causal TCN)
         self.prophet = ProphetEncoder(**prophet_config)
 
         # 2. Observation Encoder (TimeDistributed 2D CNN)
-        # TODO: 从预训练的2D VAE加载encoder
-        # 暂时使用placeholder
-        print("⚠️  Warning: Observation Encoder 需要从预训练VQ-VAE加载")
-        print(f"   预训练checkpoint: {obs_encoder_ckpt}")
+        if obs_encoder_config is None:
+            obs_encoder_config = {
+                'latent_dim': prophet_config.get('latent_dim', 256),
+                'spatial_size': (16, 20),
+                'z_channels': 3
+            }
+        self.obs_encoder = TimeDistributedObsEncoder(
+            pretrained_ckpt=obs_encoder_ckpt,
+            **obs_encoder_config
+        )
 
         # 3. Residual Aggregator (Transformer + Pool)
         if residual_config is None:
@@ -583,12 +712,7 @@ class SpatiotemporalResidualVQModel(pl.LightningModule):
         )  # (B, T, latent_dim)
 
         # 2. Observation Stream: 编码真实触觉序列
-        # TODO: 实现TimeDistributed observation encoder
-        # z_real_seq = self.obs_encoder(batch['tactile_video'])  # (B, T, latent_dim)
-        # 暂时用placeholder
-        B, _, T, _, _ = batch['tactile_video'].shape
-        latent_dim = z_pred_seq.shape[-1]
-        z_real_seq = torch.randn(B, T, latent_dim, device=z_pred_seq.device)
+        z_real_seq = self.obs_encoder(batch['tactile_video'])  # (B, T, latent_dim)
 
         # 3. Residual Stream: 聚合意外信号
         residual_seq = z_real_seq.detach() - z_pred_seq  # (B, T, latent_dim)
@@ -612,9 +736,116 @@ class SpatiotemporalResidualVQModel(pl.LightningModule):
             'vq_loss': vq_loss
         }
 
+    def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int):
+        """训练步骤"""
+        outputs = self(batch, force_identity=getattr(self, 'force_identity', False))
+
+        # 1. Hybrid重建Loss (Prophet + VQ路径)
+        hybrid_loss = F.mse_loss(outputs['recon_video'], batch['tactile_video'])
+
+        # 2. Aux重建Loss (Pure Observation路径, 用于训练obs_encoder)
+        # 使用z_real直接重建 (不经过VQ)
+        if self.aux_loss_weight > 0:
+            z_real_direct = outputs['z_real_seq']
+            # 简单解码: 直接使用decoder, force_identity=True
+            recon_aux = self.decoder(z_real_direct, outputs['event_code'], force_identity=True)
+            aux_loss = F.mse_loss(recon_aux, batch['tactile_video'])
+        else:
+            aux_loss = torch.tensor(0.0, device=self.device)
+
+        # 3. VQ Commitment Loss
+        vq_loss = outputs['vq_loss']
+
+        # 4. Sparse Loss (鼓励残差稀疏)
+        sparse_loss = self.lambda_sparse * outputs['residual_seq'].abs().mean()
+
+        # 总Loss
+        total_loss = (
+            self.hybrid_loss_weight * hybrid_loss +
+            self.aux_loss_weight * aux_loss +
+            vq_loss +
+            sparse_loss
+        )
+
+        # Logging
+        self.log('train/total_loss', total_loss, prog_bar=True, on_step=False, on_epoch=True)
+        self.log('train/hybrid_loss', hybrid_loss, prog_bar=True, on_step=False, on_epoch=True)
+        self.log('train/aux_loss', aux_loss, prog_bar=False, on_step=False, on_epoch=True)
+        self.log('train/vq_loss', vq_loss, prog_bar=True, on_step=False, on_epoch=True)
+        self.log('train/sparse_loss', sparse_loss, prog_bar=False, on_step=False, on_epoch=True)
+        self.log('train/residual_norm', outputs['residual_seq'].abs().mean(), on_step=False, on_epoch=True)
+
+        # Log权重
+        self.log('train/hybrid_weight', self.hybrid_loss_weight, on_step=False, on_epoch=True)
+        self.log('train/aux_weight', self.aux_loss_weight, on_step=False, on_epoch=True)
+
+        return total_loss
+
+    def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int):
+        """验证步骤"""
+        outputs = self(batch, force_identity=getattr(self, 'force_identity', False))
+
+        # 计算所有loss
+        hybrid_loss = F.mse_loss(outputs['recon_video'], batch['tactile_video'])
+
+        if self.aux_loss_weight > 0:
+            z_real_direct = outputs['z_real_seq']
+            recon_aux = self.decoder(z_real_direct, outputs['event_code'], force_identity=True)
+            aux_loss = F.mse_loss(recon_aux, batch['tactile_video'])
+        else:
+            aux_loss = torch.tensor(0.0, device=self.device)
+
+        vq_loss = outputs['vq_loss']
+        sparse_loss = self.lambda_sparse * outputs['residual_seq'].abs().mean()
+
+        total_loss = (
+            self.hybrid_loss_weight * hybrid_loss +
+            self.aux_loss_weight * aux_loss +
+            vq_loss +
+            sparse_loss
+        )
+
+        # Logging
+        self.log('val/total_loss', total_loss, prog_bar=True, on_step=False, on_epoch=True, sync_dist=True)
+        self.log('val/hybrid_loss', hybrid_loss, on_step=False, on_epoch=True, sync_dist=True)
+        self.log('val/aux_loss', aux_loss, on_step=False, on_epoch=True, sync_dist=True)
+        self.log('val/vq_loss', vq_loss, on_step=False, on_epoch=True, sync_dist=True)
+        self.log('val/sparse_loss', sparse_loss, on_step=False, on_epoch=True, sync_dist=True)
+
+        return total_loss
+
+    def test_step(self, batch: Dict[str, torch.Tensor], batch_idx: int):
+        return self.validation_step(batch, batch_idx)
+
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate, betas=(0.5, 0.9))
         return optimizer
+
+    @torch.no_grad()
+    def log_videos(self, batch: Dict[str, torch.Tensor], **kwargs):
+        """
+        记录视频可视化到wandb
+
+        返回用于wandb.Video的字典
+        """
+        outputs = self(batch, force_identity=getattr(self, 'force_identity', False))
+        log = {}
+
+        # 1. 输入与重建视频 (取前4个样本)
+        log['inputs_tactile_video'] = batch['tactile_video'][:4]  # (4, 3, T, H, W)
+        log['recon_hybrid_video'] = outputs['recon_video'][:4]  # (4, 3, T, H, W)
+
+        # 2. Visual context
+        log['inputs_visual'] = batch['visual_context'][:4]  # (4, 3, H, W)
+
+        # 3. 残差序列可视化 (可选)
+        # 将时序残差可视化为heatmap
+        residual_seq = outputs['residual_seq'][:4]  # (4, T, latent_dim)
+        # 简单处理: 取L2范数作为强度
+        residual_norm = torch.norm(residual_seq, dim=-1)  # (4, T)
+        log['residual_temporal'] = residual_norm
+
+        return log
 
 
 if __name__ == "__main__":
